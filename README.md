@@ -1,31 +1,40 @@
+<div align="center">
+
 # GoLive Edit
 
-GoLive Edit is a desktop audio mixer with two independent operating modes: **Local Live** for sessions that do not use OBS, and **OBS Control** for controlling an OBS WebSocket connection.
+**A standalone desktop audio mixer for Local Live sessions and OBS Control.**
 
-## Downloads
+[![Download GoLive Edit](https://img.shields.io/badge/Download-GoLive%20Edit-176b5d?style=for-the-badge)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
 
-Download the current test builds from the [Releases page](https://github.com/Parker-009d/GoLive-Edit/releases/latest):
+**Windows · macOS · Local Live · OBS Control**
 
-- **Windows 10/11, 64-bit:** `GoLive-Edit.exe`. Rust and Cargo are not required on the PC. WebView2 is required and is included with current Windows installations.
-- **macOS Intel, x64:** `GoLive-Edit-0.1.0-macOS-x64.dmg`. This test build is ad-hoc signed and not notarized; macOS may require approval to open it.
+</div>
 
-The Windows executable was cross-compiled and verified as a Windows 64-bit GUI application, but has not been tested on a Windows PC. The Mac app package was built and verified. Please test audio interfaces, Local Live recording, and OBS connections on your computer before a live session.
+## Download
 
-## Features
+Get the latest Windows and Mac downloads from the [GoLive Edit Releases page](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
 
-- **Local Live:** local device selection, mixer controls, audio processing, mute/solo, and recording without an OBS connection.
-- **OBS Control:** OBS WebSocket connection, source mapping, mixer controls, and stream controls.
-- EQ, gate, compressor, effects, and existing EQ plugin controls.
-- Native audio device discovery through the desktop backend.
+- **Windows 10/11, 64-bit:** `GoLive-Edit.exe`. Copy it to your PC and run it; Rust and Cargo are not required. WebView2 is required and is included with most current Windows installations.
+- **macOS Intel, x64:** `GoLive-Edit-0.1.0-macOS-x64.dmg`. The app is ad-hoc signed, not notarized; macOS may ask you to approve opening it.
+
+## What it does
+
+- **Local Live:** choose audio devices and mix/record without connecting to OBS.
+- **OBS Control:** connect to OBS WebSocket, map sources, control the mixer, and use OBS stream controls.
+- Channel faders, mute/solo, gate, compressor, EQ, effects, and the existing EQ plugin controls.
+
+## Build status
+
+The Windows x64 build is cross-compiled and has not yet been tested on a Windows PC. The macOS Intel app bundle was built, installed, and signature-verified; its DMG checksum was verified. Please test audio devices, Local Live recording, and OBS Control on your computer before using the app in a live session.
 
 ## Feedback and support
 
-Please use the [Issues page](https://github.com/Parker-009d/GoLive-Edit/issues) to report a problem or ask for help. Include your operating system, app version, audio interface, and steps to reproduce. Remove private information from screenshots and logs; never post passwords, stream keys, or private recordings.
+Report problems or ask for help in [GitHub Issues](https://github.com/Parker-009d/GoLive-Edit/issues). Include your operating system, app version, audio interface, and steps to reproduce. Do not post passwords, stream keys, or private recordings.
 
 ## Build from source
 
-The app uses Tauri 2, Rust, and CPAL. Developer setup instructions are available in [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). End users should use the Releases page.
+GoLive Edit uses Tauri 2, Rust, and CPAL. See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for developer setup. The source and current build files are available in the release ZIP.
 
 ## License
 
-No license is included in this early test release. Contact the maintainer through GitHub Issues about permission to reuse or redistribute the source.
+This repository does not include a license. Contact the maintainer through GitHub Issues to ask about reuse or redistribution.
