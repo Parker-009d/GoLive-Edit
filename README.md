@@ -39,7 +39,7 @@ Local Live sends sound to the selected output. To send that mix into OBS, config
 
 ## Build status
 
-The Mac app was built, installed, and signature-verified on a Mac. The Windows x64 app was cross-compiled but has not yet been tested on a Windows PC. Please verify audio device access, Local Live playback and recording, and OBS Control with your setup before relying on the app for a live session.
+The Mac app was built, installed, and signature-verified on a Mac. The Windows x64 app was cross-compiled and tested on a Windows PC. Please verify audio device access, Local Live playback and recording, and OBS Control with your setup before relying on the app for a live session.
 
 ## Feedback and support
 
