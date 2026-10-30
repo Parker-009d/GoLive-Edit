@@ -1,10 +1,10 @@
 <div align="center">
 
-# GoLive Edit
+# GoLive Edit — Desktop Audio Mixer for Windows & macOS
 
 **Your mixer. Your flow. Your phone.**
 
-A two-channel desktop mixer for real sessions: work independently in **Local Live**, bring **OBS Control** into the same app when you need it, and take the controls to your phone over your trusted local network.
+A two-channel desktop audio mixer for Windows and macOS, built for acoustic sessions, podcasts, and live streaming. Run Local Live with local recording and audio processing, connect OBS Studio in OBS Control, and control the same mixer from your phone.
 
 [![Get GoLive Edit](https://img.shields.io/badge/GET%20GOLIVE%20EDIT-v0.2.0-42cdb1?style=for-the-badge)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
 
