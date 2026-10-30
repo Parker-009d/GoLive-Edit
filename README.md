@@ -2,53 +2,77 @@
 
 # GoLive Edit
 
-**One two-channel audio workspace. Use it with or without OBS.**
+**Your mixer. Your flow. Your phone.**
 
-[![Download GoLive Edit](https://img.shields.io/badge/Download-GoLive%20Edit-176b5d?style=for-the-badge)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
+A two-channel desktop mixer for real sessions: work independently in **Local Live**, bring **OBS Control** into the same app when you need it, and take the controls to your phone over your trusted local network.
 
-**Local Live · OBS Control · Recording · Audio Processing**
+[![Get GoLive Edit](https://img.shields.io/badge/GET%20GOLIVE%20EDIT-v0.2.0-42cdb1?style=for-the-badge)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
+
+**LOCAL LIVE · OBS CONTROL · PHONE REMOTE · RECORDING · PROCESSING**
 
 </div>
 
-## One app, two independent ways to work
+## One mixer. Two ways to go live.
 
-GoLive Edit brings a standalone local mixer and OBS controls together in one desktop app. **OBS is optional for Local Live.** Use the app for an acoustic session or a simple voice-and-instrument mix; choose OBS Control when your session needs OBS.
+### Local Live — play, mix, and record without OBS
 
-### Local Live — mix without OBS
+Choose your audio interface, assign inputs to two channel strips, shape your sound with channel processing, and record the local mix inside GoLive Edit. Local Live runs independently of OBS, making it a fit for acoustic sessions, practice, podcasts, and small live setups.
 
-Choose an audio input and output, assign available inputs to the two channel strips, and shape the mix with faders, mute/solo, EQ, gate, and compression. Record the processed local mix from inside the app. This mode is designed to work independently of OBS.
+### OBS Control — bring your OBS audio into the same workflow
 
-### OBS Control — manage an OBS mix
+Connect to OBS over WebSocket, map OBS sources to the mixer channels, adjust levels and processing, and use OBS stream controls. The existing custom EQ plugin and VST workflows are available in OBS Control.
 
-Connect to OBS over its WebSocket, map OBS audio sources to the channel strips, adjust levels and processing, and use the app’s stream controls. The custom EQ plugin and VST controls are part of the OBS workflow.
+### Phone Remote — control the host mixer from across the room
+
+Pair a phone on the same Wi-Fi or hotspot, then use it to switch modes and control the running mixer. Channel and master changes are reflected on the desktop and phone, so you operate one shared mix instead of repeating adjustments. Audio stays on the host; the phone carries controls and meter/analyzer data.
+
+## Choose your release
+
+| Release | What it brings | Best for |
+| --- | --- | --- |
+| **v0.1.0 — The Core Mixer** | Two-channel Local Live and OBS Control, local recording, channel processing, and desktop builds. | Getting started with the GoLive Edit mixer. |
+| **v0.2.0 — The Connected Mixer** | Everything in v0.1.0, plus paired phone remote control, synchronized mixer state, remote parametric EQ with reset, and analyzer visualization. Windows build tested on a Windows PC. | Controlling the same live mix from the computer and a phone. |
+
+**v0.2.0 is the latest release.** The original v0.1.0 release remains available in the [release history](https://github.com/Parker-009d/GoLive-Edit/releases).
+
+## What’s in v0.2.0
+
+- **One shared mixer:** phone and desktop controls update the same running host mixer, with active states reflected on both screens.
+- **Remote modes:** switch between Local Live and OBS Control from the phone.
+- **Remote processing:** control channel and master mixer settings and edit the parametric EQ remotely.
+- **EQ tools:** reset the EQ and view the host input analyzer with a predicted post-EQ curve.
+- **Smoother EQ movement:** remote EQ changes are batched to keep adjustments responsive.
+- **Trusted device pairing:** connect over a local Wi-Fi/hotspot connection with a QR code and one-time pairing code; paired devices can reconnect without a new code.
+- **Privacy by design:** no audio is sent over Wi-Fi. Router port forwarding is not required.
 
 ## Get started
 
 1. Download GoLive Edit for your computer from the [latest release](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
-2. Open the app and choose **Local Live** for a standalone session or **OBS Control** for an OBS session.
-3. In Local Live, find your audio devices, choose the available input and output, and assign channel inputs. In OBS Control, connect to OBS and choose a source for each channel.
-4. Set your channel and master levels, then record locally or use OBS stream controls as appropriate.
+2. Open the app and choose **Local Live** or **OBS Control**.
+3. Select your audio interface and inputs, or connect OBS and map your sources.
+4. Set channel and master levels, then start your local recording or use the OBS stream controls.
+5. To use your phone, start Remote Control on the host, connect both devices to the same Wi-Fi/hotspot, scan the QR code, and pair.
 
-Local Live sends sound to the selected output. To send that mix into OBS, configure OBS to capture that output or a virtual audio route.
+Local Live sends sound to the output selected on the host. To feed that mix into OBS, configure OBS to capture that output or a virtual audio route.
 
-## Downloads
+## Downloads and compatibility
 
-- **Windows 10/11, 64-bit:** [GoLive-Edit.exe](https://github.com/Parker-009d/GoLive-Edit/releases/latest). It runs without Rust or Cargo installed. WebView2 is required and is included with most current Windows installations.
-- **macOS Intel, x64:** [GoLive-Edit-0.1.0-macOS-x64.dmg](https://github.com/Parker-009d/GoLive-Edit/releases/latest). This build is ad-hoc signed, not notarized; macOS may ask you to approve opening it.
-- **Source and current downloads:** available as a ZIP on the [release page](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
+- **Windows 10/11 · 64-bit:** standalone EXE; Rust and Cargo are not required. WebView2 is required and is included with most current Windows installations. The v0.2.0 build was tested on a Windows PC.
+- **macOS Intel · x64:** DMG build, ad-hoc signed and not notarized; macOS may ask you to approve opening it.
+- **Source:** included in the v0.2.0 source-and-downloads archive.
 
-## Build status
+## Phone remote security and network notes
 
-The Mac app was built, installed, and signature-verified on a Mac. The Windows x64 app was cross-compiled and tested on a Windows PC. Please verify audio device access, Local Live playback and recording, and OBS Control with your setup before relying on the app for a live session.
+Remote Control uses HTTPS/WSS on the selected private LAN address. The host uses a private certificate, so a phone browser may display a trust warning. Continue only for the address shown in GoLive Edit on your own trusted network. The host and phone must be able to reach one another; guest-network/client isolation or a firewall may block them. No public internet connection or router port forwarding is needed.
 
 ## Feedback and support
 
-Report problems or ask questions in [GitHub Issues](https://github.com/Parker-009d/GoLive-Edit/issues). Include your operating system, app version, audio interface, and steps to reproduce. Do not post passwords, stream keys, or private recordings.
+Found a problem or have an idea? [Open a GitHub Issue](https://github.com/Parker-009d/GoLive-Edit/issues). Include your operating system, app version, audio interface, and steps to reproduce. Never post passwords, stream keys, or private recordings.
 
 ## Build from source
 
-GoLive Edit uses Tauri 2, Rust, and CPAL. See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for developer setup. The complete source is included in the release ZIP.
+GoLive Edit uses Tauri 2, Rust, and CPAL. See the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for developer setup.
 
 ## License
 
-This repository does not include a license. Contact the maintainer through GitHub Issues to ask about reuse or redistribution.
+This repository does not currently include a license. Contact the maintainer through GitHub Issues to ask about reuse or redistribution.
