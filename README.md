@@ -13,6 +13,30 @@ A two-channel desktop audio mixer for Windows and macOS, built for acoustic sess
 
 </div>
 
+## See GoLive Edit in action
+
+### macOS — OBS Control mixer
+
+![GoLive Edit OBS Control on macOS](docs/images/desktop-macos.png)
+
+### Windows — desktop mixer preview
+
+![Illustrative Windows preview of the shared GoLive Edit desktop interface](docs/images/desktop-windows-preview.png)
+
+*The Windows image is a presentation preview of GoLive Edit’s shared cross-platform interface, not a screenshot captured on a Windows PC.*
+
+### Phone Remote — control the host mixer
+
+![GoLive Edit Phone Remote interface](docs/images/phone-remote.png)
+
+### Parametric EQ and input analyzer
+
+![GoLive Edit parametric EQ and input analyzer](docs/images/parametric-eq-analyzer.png)
+
+### Local Live setup
+
+![GoLive Edit Local Live audio device setup](docs/images/local-live-setup.png)
+
 ## One mixer. Two ways to go live.
 
 ### Local Live — play, mix, and record without OBS
@@ -64,7 +88,7 @@ Local Live sends sound to the output selected on the host. To feed that mix into
 
 ## Phone remote security and network notes
 
-Remote Control uses HTTPS/WSS on the selected private LAN address. The host uses a private certificate, so a phone browser may display a trust warning. Continue only for the address shown in GoLive Edit on your own trusted network. The host and phone must be able to reach one another; guest-network/client isolation or a firewall may block them. No public internet connection or router port forwarding is needed.
+Remote Control uses HTTPS/WSS on the selected private LAN address. The host uses a private certificate, so a phone browser may display a trust warning. Continue only for the address shown in GoLive Edit on your own trusted network. The host and phone need network access to one another; guest-network/client isolation or a firewall may block them. No public internet connection or router port forwarding is needed.
 
 ## Feedback and support
 
