@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy information for GoLive Edit, the desktop audio mixer for Windows and macOS.">
+  <title>Privacy Policy — GoLive Edit</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1112;--panel:#172123;--line:#344548;--text:#eef5f3;--muted:#b4c2c0;--mint:#61d8c3}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1a2c2b,var(--bg) 60%);color:var(--text);font:16px/1.7 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{width:min(860px,calc(100% - 32px));margin:56px auto;padding:clamp(24px,5vw,52px);border:1px solid var(--line);border-radius:18px;background:#111a1bea;box-shadow:0 20px 70px #0006}
+    a{color:var(--mint)}.brand{color:var(--mint);font-weight:800;letter-spacing:.04em}.eyebrow{font-size:.75rem;letter-spacing:.16em;color:#94aaa6;text-transform:uppercase}
+    h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.12;margin:.4em 0}h2{font-size:1.2rem;margin:2em 0 .4em;color:#dff8f2}p,li{color:var(--muted)}ul{padding-left:1.3em}.updated{font-size:.9rem;color:#94aaa6}
+    @media(max-width:600px){main{margin:16px auto;padding:24px 20px}}
+  </style>
+</head>
+<body><main>
+  <div class="brand">GoLive Edit</div>
+  <div class="eyebrow">Privacy · Local audio workspace</div>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Effective date: November 4, 2026</p>
+  <p>GoLive Edit is a desktop audio mixer for Windows and macOS. This policy describes information the app handles and how its optional features use that information.</p>
+
+  <h2>Audio and microphone</h2>
+  <p>GoLive Edit accesses a microphone or audio-interface input only when you choose an input and start Local Live. Audio is processed on the computer running the app. If you start Local Recording, the app creates an audio file and saves it through the operating system's download flow. You choose where to keep or delete that file. GoLive Edit does not send microphone audio or recordings to GoLive.</p>
+
+  <h2>Settings and audio devices</h2>
+  <p>The app reads available audio-device names and supported formats so you can select an input and output. Mixer preferences, selected device identifiers, and related interface settings are stored in local app/browser storage on your computer. They are not sent to a GoLive account or cloud service.</p>
+
+  <h2>OBS Control</h2>
+  <p>If you use OBS Control, GoLive Edit connects to the OBS WebSocket address you configure. An optional OBS password you enter is used for that connection. The app does not transmit OBS connection details to GoLive.</p>
+
+  <h2>Phone Remote Control</h2>
+  <p>When you start Remote Control, GoLive Edit accepts a secure connection from a paired phone on your local Wi-Fi network or hotspot. Pairing uses a one-time code. The host stores trusted-device information and token hashes in local app data; the phone stores its pairing token in that browser's local storage. You can revoke a trusted device from GoLive Edit, and clearing the phone browser's site data removes its saved pairing.</p>
+  <p>The remote connection carries mixer commands, control values, live meter readings, and analyzer data so the phone and desktop stay synchronized. It does not carry raw audio. The connection is intended for your private local network; the host certificate is private and may trigger a browser trust warning. Use only the address shown in GoLive Edit on a network you trust, and do not enable router port forwarding for this feature.</p>
+
+  <h2>Online services, advertising, and analytics</h2>
+  <p>GoLive Edit does not require an account and does not include advertising or analytics features. The app has no GoLive-operated cloud audio service. Network connections occur only for features you choose, such as the OBS endpoint you configure or the local phone remote.</p>
+
+  <h2>Your choices and data removal</h2>
+  <p>You control when microphone capture, recording, OBS Control, and Phone Remote are used. Stop those features in the app when you are finished. Delete downloaded recordings using your operating system, remove paired devices in the app, and clear local app or browser data to remove saved preferences and pairings.</p>
+
+  <h2>Children</h2>
+  <p>GoLive Edit is a general-purpose audio tool and is not designed to collect information from children.</p>
+
+  <h2>Policy changes and contact</h2>
+  <p>This policy may be updated when GoLive Edit's features or data practices change. For privacy questions, contact the publisher through <a href="https://github.com/Parker-009d/GoLive-Edit/issues">GoLive Edit support on GitHub</a>. Do not post passwords, private recordings, or other sensitive information in a public issue.</p>
+</main></body></html>
