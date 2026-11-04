@@ -6,7 +6,8 @@
 
 A two-channel desktop audio mixer for Windows and macOS, built for acoustic sessions, podcasts, and live streaming. Run Local Live with local recording and audio processing, connect OBS Studio in OBS Control, and control the same mixer from your phone.
 
-[![Get GoLive Edit](https://img.shields.io/badge/GET%20GOLIVE%20EDIT-v0.2.0-42cdb1?style=for-the-badge)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
+[![Get GoLive Edit free on Microsoft Store](https://img.shields.io/badge/Microsoft_Store-Get_it_free-0078D4?style=for-the-badge&logo=microsoftstore&logoColor=white)](https://apps.microsoft.com/detail/9MWPT10ZWLVZ)
+[![Mac and Windows downloads](https://img.shields.io/badge/GitHub-Mac_and_Windows_downloads-181717?style=for-the-badge&logo=github)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
 
 **LOCAL LIVE · OBS CONTROL · PHONE REMOTE · RECORDING · PROCESSING**
 
@@ -47,7 +48,7 @@ Pair a phone on the same Wi-Fi or hotspot, then use it to switch modes and contr
 
 ## Get started
 
-1. Download GoLive Edit for your computer from the [latest release](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
+1. On Windows, [get GoLive Edit free from the Microsoft Store](https://apps.microsoft.com/detail/9MWPT10ZWLVZ). On macOS, download the DMG from the [latest GitHub release](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
 2. Open the app and choose **Local Live** or **OBS Control**.
 3. Select your audio interface and inputs, or connect OBS and map your sources.
 4. Set channel and master levels, then start your local recording or use the OBS stream controls.
@@ -57,8 +58,8 @@ Local Live sends sound to the output selected on the host. To feed that mix into
 
 ## Downloads and compatibility
 
-- **Windows 10/11 · 64-bit:** standalone EXE; Rust and Cargo are not required. WebView2 is required and is included with most current Windows installations. The v0.2.0 build was tested on a Windows PC.
-- **macOS Intel · x64:** DMG build, ad-hoc signed and not notarized; macOS may ask you to approve opening it.
+- **Windows 10/11 · 64-bit:** [Microsoft Store (free)](https://apps.microsoft.com/detail/9MWPT10ZWLVZ) or standalone EXE; Rust and Cargo are not required. WebView2 is required and is included with most current Windows installations. The v0.2.0 build was tested on a Windows PC.
+- **macOS Intel · x64:** DMG build, ad-hoc signed and not notarized; macOS may ask you to approve opening it. [Download from GitHub Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
 - **Source:** included in the v0.2.0 source-and-downloads archive.
 
 ## Phone remote security and network notes
