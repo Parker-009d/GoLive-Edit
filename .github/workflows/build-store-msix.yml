@@ -24,20 +24,26 @@ jobs:
         shell: pwsh
         run: |
           $sourceRoot = Join-Path $env:RUNNER_TEMP 'source'
-          $stagingZip = Join-Path $env:RUNNER_TEMP 'store-staging.zip'
           $payload = Join-Path $env:RUNNER_TEMP 'store-payload'
+          $assets = Join-Path $payload 'Assets'
           $output = Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.1.0-x64.msix'
           Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Source-and-Downloads.zip') -DestinationPath $sourceRoot
-          $stagingEntry = Get-ChildItem -LiteralPath $sourceRoot -Filter 'GoLive-Edit-0.2.0-MSIX-Staging.zip' -Recurse | Select-Object -First 1
-          if (-not $stagingEntry) { throw 'The source archive does not contain the Store staging package' }
-          Expand-Archive -LiteralPath $stagingEntry.FullName -DestinationPath $payload
-          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Windows-x64.exe') -Destination (Join-Path $payload 'GoLive-Edit.exe') -Force
+          $project = Get-ChildItem -LiteralPath $sourceRoot -Directory | Select-Object -First 1
+          $manifestSource = Join-Path $project.FullName 'src-tauri\store\Package.appxmanifest'
+          if (-not (Test-Path -LiteralPath $manifestSource)) { throw 'The release source archive is missing the Store manifest' }
+          New-Item -ItemType Directory -Path $assets -Force | Out-Null
+          Copy-Item -LiteralPath $manifestSource -Destination (Join-Path $payload 'AppxManifest.xml')
+          foreach ($asset in @('StoreLogo.png','Square150x150Logo.png','Square44x44Logo.png')) {
+            $assetSource = Join-Path $project.FullName "src-tauri\icons\$asset"
+            if (-not (Test-Path -LiteralPath $assetSource)) { throw "Required Store image is missing: $asset" }
+            Copy-Item -LiteralPath $assetSource -Destination (Join-Path $assets $asset)
+          }
+          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Windows-x64.exe') -Destination (Join-Path $payload 'GoLive-Edit.exe')
           [xml]$manifest = Get-Content -LiteralPath (Join-Path $payload 'AppxManifest.xml') -Raw
           $identity = $manifest.SelectSingleNode("//*[local-name()='Identity']")
           if (-not $identity -or $identity.Name -ne '48997GoLive.GoLiveEdit' -or $identity.Publisher -ne 'CN=50A5B27E-E225-4A30-A20B-688823B9F443') { throw 'Store identity does not match the reserved Partner Center product' }
           $identity.Version = '0.2.1.0'
           $manifest.Save((Join-Path $payload 'AppxManifest.xml'))
-          Remove-Item -LiteralPath (Join-Path $payload 'AppxBlockMap.xml'), (Join-Path $payload '[Content_Types].xml') -Force -ErrorAction SilentlyContinue
           $makeAppx = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\MakeAppx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $makeAppx) { throw 'Microsoft MakeAppx was not found on the Windows runner' }
           & $makeAppx.FullName pack /d $payload /p $output /o
