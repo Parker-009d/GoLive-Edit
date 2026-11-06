@@ -1,0 +1,52 @@
+name: Build GoLive Edit Store MSIX
+on:
+  push:
+    branches:
+      - codex/store-msix-build-0.2.1
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - name: Check out temporary build branch
+        uses: actions/checkout@v4
+      - name: Download and verify published v0.2.0 source and Windows build
+        shell: pwsh
+        run: |
+          $sourceZip = Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Source-and-Downloads.zip'
+          $appExe = Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Windows-x64.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Parker-009d/GoLive-Edit/releases/download/v0.2.0/GoLive-Edit-0.2.0-Source-and-Downloads.zip' -OutFile $sourceZip
+          Invoke-WebRequest -Uri 'https://github.com/Parker-009d/GoLive-Edit/releases/download/v0.2.0/GoLive-Edit-0.2.0-Windows-x64.exe' -OutFile $appExe
+          if ((Get-FileHash $sourceZip -Algorithm SHA256).Hash.ToLower() -ne 'c8dcec809bbcaea27a7e29e9fa28419ea087dd84e5e69ac53ac8750d034d82af') { throw 'Source archive SHA-256 mismatch' }
+          if ((Get-FileHash $appExe -Algorithm SHA256).Hash.ToLower() -ne '7fe4c39adc6508ad0894ba58f34b1358849e359e502a702dc35e15d5fb1d36a7') { throw 'Windows executable SHA-256 mismatch' }
+      - name: Assemble and package with Microsoft MakeAppx
+        shell: pwsh
+        run: |
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'source'
+          $stagingZip = Join-Path $env:RUNNER_TEMP 'store-staging.zip'
+          $payload = Join-Path $env:RUNNER_TEMP 'store-payload'
+          $output = Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.1.0-x64.msix'
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Source-and-Downloads.zip') -DestinationPath $sourceRoot
+          $stagingEntry = Get-ChildItem -LiteralPath $sourceRoot -Filter 'GoLive-Edit-0.2.0-MSIX-Staging.zip' -Recurse | Select-Object -First 1
+          if (-not $stagingEntry) { throw 'The source archive does not contain the Store staging package' }
+          Expand-Archive -LiteralPath $stagingEntry.FullName -DestinationPath $payload
+          Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'GoLive-Edit-0.2.0-Windows-x64.exe') -Destination (Join-Path $payload 'GoLive-Edit.exe') -Force
+          [xml]$manifest = Get-Content -LiteralPath (Join-Path $payload 'AppxManifest.xml') -Raw
+          $identity = $manifest.SelectSingleNode("//*[local-name()='Identity']")
+          if (-not $identity -or $identity.Name -ne '48997GoLive.GoLiveEdit' -or $identity.Publisher -ne 'CN=50A5B27E-E225-4A30-A20B-688823B9F443') { throw 'Store identity does not match the reserved Partner Center product' }
+          $identity.Version = '0.2.1.0'
+          $manifest.Save((Join-Path $payload 'AppxManifest.xml'))
+          Remove-Item -LiteralPath (Join-Path $payload 'AppxBlockMap.xml'), (Join-Path $payload '[Content_Types].xml') -Force -ErrorAction SilentlyContinue
+          $makeAppx = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\MakeAppx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeAppx) { throw 'Microsoft MakeAppx was not found on the Windows runner' }
+          & $makeAppx.FullName pack /d $payload /p $output /o
+          if ($LASTEXITCODE -ne 0) { throw "MakeAppx failed with exit code $LASTEXITCODE" }
+          Get-FileHash -LiteralPath $output -Algorithm SHA256
+      - name: Publish MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoLive-Edit-0.2.1.0-x64-MSIX
+          path: ${{ runner.temp }}\GoLive-Edit-0.2.1.0-x64.msix
+          if-no-files-found: error
+          retention-days: 7
