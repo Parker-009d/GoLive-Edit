@@ -1,102 +1,122 @@
 <div align="center">
 
-# GoLive Edit — Desktop Audio Mixer for Windows & macOS
+# GoLive Edit
 
-**Your mixer. Your flow. Your phone.**
+### Your sound. One mixer. OBS when you need it.
 
-A two-channel desktop audio mixer for Windows and macOS, built for acoustic sessions, podcasts, and live streaming. Run Local Live with local recording and audio processing, connect OBS Studio in OBS Control, and control the same mixer from your phone.
+**A two-channel desktop mixer for acoustic sessions, podcasts, practice, and live streaming. Mix and record without OBS, connect the same workflow to OBS when you go live, and take control from your phone.**
 
-[![Get GoLive Edit free on Microsoft Store](https://img.shields.io/badge/Microsoft_Store-Get_it_free-0078D4?style=for-the-badge&logo=microsoftstore&logoColor=white)](https://apps.microsoft.com/detail/9MWPT10ZWLVZ)
-[![Mac and Windows downloads](https://img.shields.io/badge/GitHub-Mac_and_Windows_downloads-181717?style=for-the-badge&logo=github)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
+[![Get GoLive Edit on Microsoft Store](https://img.shields.io/badge/Microsoft_Store-Get_it_free-0078D4?style=for-the-badge&logo=microsoftstore&logoColor=white)](https://apps.microsoft.com/detail/9MWPT10ZWLVZ)
+[![Download for Mac or Windows](https://img.shields.io/badge/Download-Mac_%7C_Windows-181717?style=for-the-badge&logo=github)](https://github.com/Parker-009d/GoLive-Edit/releases/latest)
 
-**LOCAL LIVE · OBS CONTROL · PHONE REMOTE · RECORDING · PROCESSING**
+**LOCAL LIVE · OBS CONTROL · 17 SOUND PRESETS · PHONE REMOTE · LOCAL RECORDING**
 
 </div>
 
-## See GoLive Edit in action
+GoLive Edit is for the moment when you want to plug in, set your levels, and focus on the performance—not assemble a complicated audio setup. It brings two input channels, live meters, hands-on mixing controls, practical processing, and a stereo master into one desktop app.
 
-### macOS — OBS Control mixer
+Start a session with your audio interface and keep OBS closed. When you need to stream, connect OBS. When you need to move across the room, use your phone as a remote surface for the same running mixer.
 
-![GoLive Edit OBS Control on macOS](docs/images/desktop-macos.png)
+## One app, two ways to mix
 
-### Windows — desktop mixer preview
+### Local Live: your session does not need OBS
 
-![Illustrative Windows preview of the shared GoLive Edit desktop interface](docs/images/desktop-windows-preview.png)
+Connect an audio interface, choose the inputs and output, and build a processed stereo mix in GoLive Edit. Local Live runs independently of OBS, so it works for acoustic practice, a live room, a podcast, or a small performance even when OBS is not installed or open.
 
-*The Windows image is a presentation preview of GoLive Edit’s shared cross-platform interface, not a screenshot captured on a Windows PC.*
+Each channel has input trim, a fader, mute and solo, EQ, gate, and compressor controls. A master fader and mute manage the final mix. Live meters show the input and output signal, and DSP bypass lets you compare the processed and unprocessed path. Record the processed stereo mix and save it on your computer.
 
-### Phone Remote — control the host mixer
+**Signal path:** audio interface → two channel strips → channel processing and faders → stereo master → selected output and local recording.
 
-![GoLive Edit Phone Remote interface](docs/images/phone-remote.png)
+### OBS Control: bring the mixer into your stream
 
-### Parametric EQ and input analyzer
+When you stream, connect GoLive Edit to OBS Studio over OBS WebSocket and map an OBS audio source to each channel. Adjust the mix and processing from GoLive Edit, monitor the channel and master levels, and use the available OBS stream controls from the same workspace.
 
-![GoLive Edit parametric EQ and input analyzer](docs/images/parametric-eq-analyzer.png)
+GoLive Edit also provides an OBS VST2 filter workflow for compatible plug-ins installed on the host computer. Third-party plug-ins are not bundled with the app; OBS handles the plug-in itself.
+
+Local Live and OBS Control are separate operating modes. Local Live sends audio to the output you select on the host. To send that mix into OBS, set OBS to capture the selected output or a virtual audio route.
+
+## Sound shaping that gets you started
+
+Choose a preset for the source, then adjust it to the instrument, microphone, room, and performer in front of you.
+
+- **17 ready-to-apply presets:** six vocal and microphone presets, including SM58 spoken word, preaching, natural acoustic vocal, warm lead, bright mic, and backing vocal; plus eleven keyboard presets for Nord Stage, Yamaha Motif and CP, Roland RD, Korg Kronos, Kawai MP, electric piano, bright piano, pad, organ, and dense keys.
+- **Presets change the processing:** applying a preset loads its EQ, gate, and compressor values into the channel and applies those settings to the active Local Live or OBS path where supported. Presets are practical starting points, not factory calibration or a promise that one setting fits every room and performer.
+- **Four-band parametric EQ plus low cut:** shape frequencies across the spectrum with adjustable frequency, gain, Q, and band type. See the combined response curve as you make changes.
+- **Live input spectrum analyzer:** inspect the selected host input and compare it with the predicted post-EQ response. The analyzer uses the host audio input; audio is not sent to the phone.
+- **Pre-processing input trim:** raise or lower each channel's incoming level before its gate, EQ, and compressor, independently of the channel fader.
+- **Seven interface themes:** Deep Teal, Studio Sage, Warm Amber, Slate Blue, Lunar Graphite, Arctic Studio, and Copper Studio. Pick a surface that suits your workspace; the selected theme carries over to Phone Remote.
+
+## Keep control within reach
+
+Pair a phone with the host on the same Wi-Fi network or hotspot. Use the phone to switch between Local Live and OBS Control and operate supported mixer, processing, and EQ controls. The desktop and phone show the same shared mixer state, so a mute, solo, fader, or mode change made on one is reflected on the other.
+
+Pair a new device with the one-time code in GoLive Edit. Once trusted, that device can reconnect after the app restarts without asking you to pair again. The remote connection carries control commands and meter/analyzer data; **it does not carry audio**. Router port forwarding is not required.
+
+## See GoLive Edit
+
+### Desktop mixer · OBS Control
+
+![GoLive Edit desktop mixer in OBS Control](docs/images/desktop-macos.png)
 
 ### Local Live setup
 
-![GoLive Edit Local Live audio device setup](docs/images/local-live-setup.png)
+![Choose the audio interface and channel inputs for Local Live](docs/images/local-live-setup.png)
 
-## One mixer. Two ways to go live.
+### Parametric EQ and analyzer
 
-### Local Live — play, mix, and record without OBS
+![GoLive Edit four-band parametric EQ and input analyzer](docs/images/parametric-eq-analyzer.png)
 
-Choose your audio interface, assign inputs to two channel strips, shape your sound with channel processing, and record the local mix inside GoLive Edit. Local Live runs independently of OBS, making it a fit for acoustic sessions, practice, podcasts, and small live setups.
+### Phone Remote
 
-### OBS Control — bring your OBS audio into the same workflow
+![GoLive Edit Phone Remote controls](docs/images/phone-remote.png)
 
-Connect to OBS over WebSocket, map OBS sources to the mixer channels, adjust levels and processing, and use OBS stream controls. The existing custom EQ plugin and VST workflows are available in OBS Control.
+### Windows interface preview
 
-### Phone Remote — control the host mixer from across the room
+![Illustrative preview of GoLive Edit's Windows interface](docs/images/desktop-windows-preview.png)
 
-Pair a phone on the same Wi-Fi or hotspot, then use it to switch modes and control the running mixer. Channel and master changes are reflected on the desktop and phone, so you operate one shared mix instead of repeating adjustments. Audio stays on the host; the phone carries controls and meter/analyzer data.
+*This Windows image is a presentation preview of the shared desktop interface, not a screenshot captured on a Windows PC.*
 
-## Choose your release
+## What each release brings
 
-| Release | What it brings | Best for |
-| --- | --- | --- |
-| **v0.1.0 — The Core Mixer** | Two-channel Local Live and OBS Control, local recording, channel processing, and desktop builds. | Getting started with the GoLive Edit mixer. |
-| **v0.2.0 — The Connected Mixer** | Everything in v0.1.0, plus paired phone remote control, synchronized mixer state, remote parametric EQ with reset, and analyzer visualization. Windows build tested on a Windows PC. | Controlling the same live mix from the computer and a phone. |
+| Release | What it brings |
+| --- | --- |
+| **v0.1.0 · The Core Mixer** | The original two-channel Local Live and OBS Control workflows, channel processing, local recording, and desktop mixer. |
+| **v0.2.0 · The Connected Mixer** | Paired phone control of the same mixer, synchronized control state, remote EQ and analyzer controls, smoother EQ updates, 17 vocal and keyboard starting presets, seven surface themes, input trim, and the refreshed OBS mute/solo synchronization fix. |
 
-**v0.2.0 is the latest release.** The original v0.1.0 release remains available in the [release history](https://github.com/Parker-009d/GoLive-Edit/releases).
+The v0.1.0 release remains available in the [release history](https://github.com/Parker-009d/GoLive-Edit/releases). The v0.2.0 update refreshes the existing release and keeps its tag and release page.
 
-## What’s in v0.2.0
+## Start your first mix
 
-- **One shared mixer:** phone and desktop controls update the same running host mixer, with active states reflected on both screens.
-- **Remote modes:** switch between Local Live and OBS Control from the phone.
-- **Remote processing:** control channel and master mixer settings and edit the parametric EQ remotely.
-- **EQ tools:** reset the EQ and view the host input analyzer with a predicted post-EQ curve.
-- **Smoother EQ movement:** remote EQ changes are batched to keep adjustments responsive.
-- **Trusted device pairing:** connect over a local Wi-Fi/hotspot connection with a QR code and one-time pairing code; paired devices can reconnect without a new code.
-- **Privacy by design:** no audio is sent over Wi-Fi. Router port forwarding is not required.
+1. Download GoLive Edit for your computer and open it.
+2. Choose **Local Live** for a session without OBS, or **OBS Control** to work with an OBS stream.
+3. In Local Live, select your audio interface, input assignments, and output. In OBS Control, connect OBS and map a source to each channel.
+4. Set input trim and channel levels. Choose a vocal or keyboard preset if it helps you get close, then refine EQ and dynamics while listening to the actual source.
+5. Start your local stereo recording, or use the OBS controls for your stream.
+6. For phone control, start Remote Control on the host and pair a phone on the same Wi-Fi or hotspot.
 
-## Get started
+## Downloads and system requirements
 
-1. On Windows, [get GoLive Edit free from the Microsoft Store](https://apps.microsoft.com/detail/9MWPT10ZWLVZ). On macOS, download the DMG from the [latest GitHub release](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
-2. Open the app and choose **Local Live** or **OBS Control**.
-3. Select your audio interface and inputs, or connect OBS and map your sources.
-4. Set channel and master levels, then start your local recording or use the OBS stream controls.
-5. To use your phone, start Remote Control on the host, connect both devices to the same Wi-Fi/hotspot, scan the QR code, and pair.
-
-Local Live sends sound to the output selected on the host. To feed that mix into OBS, configure OBS to capture that output or a virtual audio route.
-
-## Downloads and compatibility
-
-- **Windows 10/11 · 64-bit:** [Microsoft Store (free)](https://apps.microsoft.com/detail/9MWPT10ZWLVZ) or standalone EXE; Rust and Cargo are not required. WebView2 is required and is included with most current Windows installations. The v0.2.0 build was tested on a Windows PC.
-- **macOS Intel · x64:** DMG build, ad-hoc signed and not notarized; macOS may ask you to approve opening it. [Download from GitHub Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
+- **Windows 10/11, x64:** free Microsoft Store listing or standalone Windows executable. Rust and Cargo are not required to run the standalone build. WebView2 is required and is included with most current Windows installations.
+- **macOS Intel, x64:** DMG download. The app is ad-hoc signed and not notarized, so macOS may ask you to approve opening it.
 - **Source:** included in the v0.2.0 source-and-downloads archive.
 
-## Phone remote security and network notes
+## Questions
 
-Remote Control uses HTTPS/WSS on the selected private LAN address. The host uses a private certificate, so a phone browser may display a trust warning. Continue only for the address shown in GoLive Edit on your own trusted network. The host and phone need network access to one another; guest-network/client isolation or a firewall may block them. No public internet connection or router port forwarding is needed.
+**Do I need OBS?** No. Local Live mixes and records without OBS. OBS is needed only for OBS Control and streaming through OBS.
 
-## Feedback and support
+**Does the phone receive my audio?** No. Audio stays on the host computer. The phone sends control changes and receives meter/analyzer data over the local connection.
 
-Found a problem or have an idea? [Open a GitHub Issue](https://github.com/Parker-009d/GoLive-Edit/issues). Include your operating system, app version, audio interface, and steps to reproduce. Never post passwords, stream keys, or private recordings.
+**Is this a multitrack recording editor?** No. Local Live records the processed stereo mix. GoLive Edit is a live mixer and stereo recorder, not a DAW timeline editor.
+
+**Why does my phone show a certificate warning?** The host creates a private certificate for the local encrypted connection. Continue only for the GoLive Edit address shown on your own trusted network. Keep the pairing code private and leave router port forwarding off.
+
+## Help and feedback
+
+Have a setup question, found a bug, or have an idea that would make GoLive Edit more useful? [Open an issue on GitHub](https://github.com/Parker-009d/GoLive-Edit/issues). Include your operating system, app version, audio interface, and steps to reproduce. Do not post passwords, stream keys, or private recordings.
 
 ## Build from source
 
-GoLive Edit uses Tauri 2, Rust, and CPAL. See the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for developer setup.
+GoLive Edit uses Tauri 2, Rust, and CPAL. Developer setup requirements are listed in the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ## License
 
