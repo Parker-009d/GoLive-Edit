@@ -29,10 +29,8 @@ jobs:
         shell: pwsh
         run: |
           $plugin = Join-Path $PWD 'macos-host/windows-host/Resources/GoLiveFX.dll'
-          cl.exe /nologo /std:c++17 /O2 /LD macos-host/vst-plugin/GoLiveFX.cpp /link "/OUT:$plugin"
+          cl.exe /nologo /std:c++17 /O2 /LD macos-host/vst-plugin/GoLiveFX.cpp /link "/OUT:$plugin" /EXPORT:VSTPluginMain
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
-          $exports = & dumpbin.exe /exports $plugin
-          if ($exports -notmatch 'VSTPluginMain') { throw 'GoLiveFX.dll does not export the OBS VST entry point.' }
 
       - name: Ensure WebView2 Runtime is installed
         shell: pwsh
