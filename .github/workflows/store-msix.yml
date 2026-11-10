@@ -63,12 +63,12 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap desktop rescap">
             <Identity Name="48997GoLive.GoLiveEdit" Publisher="CN=50A5B27E-E225-4A30-A20B-688823B9F443" Version="0.2.2.0" ProcessorArchitecture="x64" />
-            <Properties><DisplayName>GoLiv Edit App</DisplayName><PublisherDisplayName>GoLive</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
+            <Properties><DisplayName>GoLive Edit</DisplayName><PublisherDisplayName>GoLive</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
             <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
             <Resources><Resource Language="en-us" /></Resources>
             <Applications>
               <Application Id="GoLivEdit" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication">
-                <uap:VisualElements DisplayName="GoLiv Edit App" Description="GoLiv Edit App" BackgroundColor="#000000" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+                <uap:VisualElements DisplayName="GoLive Edit" Description="GoLive Edit" BackgroundColor="#000000" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
                 <Extensions><desktop:Extension Category="windows.fullTrustProcess" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication"><desktop:FullTrustProcess /></desktop:Extension></Extensions>
               </Application>
             </Applications>
@@ -86,7 +86,7 @@ jobs:
           & $makeappx.FullName unpack /p $msix /d $roundTrip
           if ($LASTEXITCODE -ne 0) { throw 'MSIX package round-trip check failed.' }
           [xml]$manifestCheck = Get-Content (Join-Path $roundTrip 'AppxManifest.xml')
-          if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.2.0') { throw 'MSIX identity or version does not match the existing Store product.' }
+          if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.2.0' -or $manifestCheck.Package.Properties.DisplayName -ne 'GoLive Edit') { throw 'MSIX identity, display name, or version does not match the existing Store product.' }
           Write-Host "Created $msix with the reserved GoLive Edit Store identity."
 
       - name: Upload Store package
