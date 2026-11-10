@@ -44,16 +44,26 @@ Connect to OBS Studio using its WebSocket server and map an OBS audio input to e
 
 ## How the connections work
 
-GoLiv Edit has two distinct audio workflows. **Local Live** captures an interface and records a stereo WAV through each channel’s Gate, EQ, compressor, FX sends and returns, fader, and the master controls. **OBS Control** connects to OBS to control audio sources that OBS already owns. The OBS WebSocket is a control connection; it does not carry audio.
 
-![Animated signal-flow illustration showing the Local Live audio path, OBS Control path, and phone remote control link](signal-flow.gif)
 
-*The moving pulses illustrate how audio and control signals travel through the app; they are not a live meter feed.*
+This diagram follows the **actual Local Live recording path**. Each channel runs through Gate → parametric EQ → compressor → assigned FX send and wet return → channel fader and mute/solo. Both channels then feed the stereo master → soft limiter → 24-bit stereo WAV. The meters and analyzer tap the live interface inputs separately.
+
+```mermaid
+flowchart LR
+  subgraph LL["LOCAL LIVE · STEREO WAV RECORDING"]
+    direction LR
+    I1["Interface input 1 · CH 1"] --> G1["Gate"] --> EQ1["Parametric EQ · low cut + 4 bands"] --> C1["Compressor"] --> FX1["Assigned FX send + wet return"] --> F1["CH 1 fader · mute · solo"] --> M["Stereo master · fader + mute"]
+    I2["Interface input 2 · CH 2"] --> G2["Gate"] --> EQ2["Parametric EQ · low cut + 4 bands"] --> C2["Compressor"] --> FX2["Assigned FX send + wet return"] --> F2["CH 2 fader · mute · solo"] --> M
+    M --> LIM["Soft limiter"] --> WAV["24-bit stereo WAV"]
+    I1 -. input meter tap .-> MET["Meters + analyzer"]
+    I2 -. input meter tap .-> MET
+  end
+```
 
 ### What each connection carries
 
-- **Interface → Local Live:** Input 1 feeds Channel 1; Input 2 feeds Channel 2. Each channel’s Gate, EQ, compressor, fader, mute/solo state, and assigned FX feed the 24-bit stereo WAV mix through the stereo master. The live meters and analyzer show the interface input.
-- **GoLiv Edit ↔ OBS:** Assign two distinct OBS audio sources. GoLiv Edit sends supported fader, mute/solo, and processor settings over OBS WebSocket; OBS continues to handle the audio and stream or recording output.
+- **Interface → Local Live:** Input 1 feeds Channel 1 and input 2 feeds Channel 2. Each recorded channel passes through Gate → parametric EQ → compressor → assigned FX send and wet return → channel fader and mute/solo. The channels feed the stereo master and soft limiter before writing a 24-bit stereo WAV; meters and analyzer tap the live interface inputs.
+- **GoLiv Edit ↔ OBS:** Assign two distinct OBS audio sources. GoLiv Edit sends supported controls over OBS WebSocket; OBS retains its own audio path and handles stream or recording output.
 - **GoLiv Edit ↔ phone:** Pair on the same Wi-Fi network. The phone sends control changes and receives meter/analyzer data. It never receives the audio signal.
 
 OBS WebSocket is not an audio cable. To make a Local Live mix appear as a new OBS audio input, configure an audio route between the apps on the computer; that routing is separate from OBS Control.
