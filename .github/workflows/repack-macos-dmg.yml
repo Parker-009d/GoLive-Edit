@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   repackage-dmg:
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - name: Repackage the exact released app with a visible Applications shortcut
