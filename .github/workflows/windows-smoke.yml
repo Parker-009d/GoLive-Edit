@@ -1,0 +1,74 @@
+name: Windows app smoke test
+
+'on':
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  launch-test:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Windows source bundle
+        shell: pwsh
+        run: Expand-Archive -LiteralPath windows-host-source.zip -DestinationPath . -Force
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Ensure WebView2 Runtime is installed
+        shell: pwsh
+        run: |
+          $runtime = Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients' -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } |
+            Where-Object { $_.name -eq 'Microsoft Edge WebView2 Runtime' } |
+            Select-Object -First 1
+          if (-not $runtime) {
+            $installer = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $install = Start-Process $installer -ArgumentList '/silent', '/install' -Wait -PassThru
+            if ($install.ExitCode -notin @(0, 3010)) { throw "WebView2 installer exited with $($install.ExitCode)" }
+          }
+
+      - name: Publish Windows x64 app
+        shell: pwsh
+        run: >-
+          dotnet publish macos-host/windows-host/GoLive.Windows.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          --output artifacts/GoLivEdit
+
+      - name: Launch app and verify mixer window
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD 'artifacts/GoLivEdit/GoLivEdit.exe'
+          if (-not (Test-Path $app)) { throw "Published app not found: $app" }
+          $proc = Start-Process -FilePath $app -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(45)
+            do {
+              Start-Sleep -Milliseconds 500
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "GoLivEdit exited during startup (code $($proc.ExitCode))" }
+            } while ($proc.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline)
+            if ($proc.MainWindowHandle -eq 0) { throw 'GoLivEdit did not create a visible main window within 45 seconds.' }
+            if ($proc.MainWindowTitle -notlike '*GoLiv Edit App*') {
+              throw "Unexpected main window title: '$($proc.MainWindowTitle)'"
+            }
+            Write-Host "PASS: $($proc.MainWindowTitle) opened (PID $($proc.Id))."
+          }
+          finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+
+      - name: Upload Windows beta build
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoLivEdit-Windows-x64-beta
+          path: artifacts/GoLivEdit/
+          if-no-files-found: error
