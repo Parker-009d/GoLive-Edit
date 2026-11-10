@@ -1,0 +1,94 @@
+name: Build Microsoft Store MSIX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-store-msix:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract current Windows source bundle
+        shell: pwsh
+        run: Expand-Archive -LiteralPath windows-host-source.zip -DestinationPath . -Force
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build GoLive audio processor
+        shell: pwsh
+        run: |
+          $plugin = Join-Path $PWD 'macos-host/windows-host/Resources/GoLiveFX.dll'
+          cl.exe /nologo /std:c++17 /O2 /LD macos-host/vst-plugin/GoLiveFX.cpp /link "/OUT:$plugin" /EXPORT:VSTPluginMain
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
+
+      - name: Publish Windows x64 app
+        shell: pwsh
+        run: >-
+          dotnet publish macos-host/windows-host/GoLive.Windows.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          --output artifacts/GoLivEdit
+
+      - name: Create Store package with existing product identity
+        shell: pwsh
+        run: |
+          $package = Join-Path $PWD 'artifacts/msix'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item 'artifacts/GoLivEdit/*' $package -Recurse -Force
+          $assets = Join-Path $package 'Assets'
+          New-Item -ItemType Directory -Force -Path $assets | Out-Null
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::new((Join-Path $PWD 'macos-host/windows-host/Resources/GoLive.ico'))
+          foreach ($size in @(44, 50, 150)) {
+            $bitmap = [System.Drawing.Bitmap]::new($size, $size)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.Clear([System.Drawing.Color]::Transparent)
+            $graphics.DrawIcon($icon, [System.Drawing.Rectangle]::new(0, 0, $size, $size))
+            $name = if ($size -eq 50) { 'StoreLogo.png' } elseif ($size -eq 150) { 'Square150x150Logo.png' } else { 'Square44x44Logo.png' }
+            $bitmap.Save((Join-Path $assets $name), [System.Drawing.Imaging.ImageFormat]::Png)
+            $graphics.Dispose(); $bitmap.Dispose()
+          }
+          $manifest = @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap desktop rescap">
+            <Identity Name="48997GoLive.GoLiveEdit" Publisher="CN=50A5B27E-E225-4A30-A20B-688823B9F443" Version="0.2.2.0" ProcessorArchitecture="x64" />
+            <Properties><DisplayName>GoLiv Edit App</DisplayName><PublisherDisplayName>GoLive</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
+            <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+            <Resources><Resource Language="en-us" /></Resources>
+            <Applications>
+              <Application Id="GoLivEdit" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication">
+                <uap:VisualElements DisplayName="GoLiv Edit App" Description="GoLiv Edit App" BackgroundColor="#000000" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+                <Extensions><desktop:Extension Category="windows.fullTrustProcess" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication"><desktop:FullTrustProcess /></desktop:Extension></Extensions>
+              </Application>
+            </Applications>
+            <Capabilities><Capability Name="internetClientServer" /><Capability Name="privateNetworkClientServer" /><DeviceCapability Name="microphone" /><rescap:Capability Name="runFullTrust" /></Capabilities>
+          </Package>
+          '@
+          Set-Content -LiteralPath (Join-Path $package 'AppxManifest.xml') -Value $manifest -Encoding utf8
+          $kits = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Windows Kits\10\bin'
+          $makeappx = Get-ChildItem $kits -Filter makeappx.exe -Recurse | Where-Object { $_.FullName.EndsWith('\x64\makeappx.exe') } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw 'Windows SDK makeappx.exe was not found.' }
+          $msix = Join-Path $PWD 'artifacts/GoLiv-Edit-App-0.2.2.0-x64.msix'
+          & $makeappx.FullName pack /d $package /p $msix /o
+          if ($LASTEXITCODE -ne 0) { throw 'makeappx failed to create Store package.' }
+          & $makeappx.FullName validate /p $msix
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX validation failed.' }
+          Write-Host "Created $msix with the reserved GoLive Edit Store identity."
+
+      - name: Upload Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoLiv-Edit-Store-MSIX-0.2.2.0
+          path: artifacts/GoLiv-Edit-App-0.2.2.0-x64.msix
+          if-no-files-found: error
