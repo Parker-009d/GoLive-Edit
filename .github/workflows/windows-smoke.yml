@@ -2,9 +2,17 @@ name: Windows app smoke test
 
 'on':
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing release tag to replace its Windows ZIP (for example v0.2.0)'
+        required: false
+        type: string
   push:
     branches: [main, master]
   pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   launch-test:
@@ -77,9 +85,72 @@ jobs:
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
           }
 
-      - name: Upload Windows beta build
+      - name: Package Windows x64 release ZIP
+        shell: pwsh
+        run: |
+          $package = Join-Path $PWD 'artifacts/package'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          $files = @(
+            'GoLivEdit.exe', 'D3DCompiler_47_cor3.dll', 'PenImc_cor3.dll',
+            'PresentationNative_cor3.dll', 'vcruntime140_cor3.dll', 'wpfgfx_cor3.dll',
+            'WebView2Loader.dll'
+          )
+          foreach ($file in $files) {
+            $source = Join-Path $PWD "artifacts/GoLivEdit/$file"
+            if (-not (Test-Path $source)) { throw "Required Windows runtime file missing: $file" }
+            Copy-Item $source $package
+          }
+          Copy-Item 'artifacts/GoLivEdit/runtimes' $package -Recurse -Force
+          Copy-Item 'artifacts/GoLivEdit/Resources' $package -Recurse -Force
+          @'
+          GoLiv Edit App 0.2.0 — Windows x64
+
+          1. Extract this ZIP into a folder.
+          2. Run GoLivEdit.exe.
+          3. Windows WebView2 Runtime is required.
+
+          Built and launch-smoke-tested on a hosted Windows runner.
+          '@ | Set-Content -Encoding utf8 (Join-Path $package 'INSTALL.txt')
+          $zip = Join-Path $PWD 'artifacts/GoLiv-Edit-App-0.2.0-Windows-x64.zip'
+          Compress-Archive -Path (Join-Path $package '*') -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          @"
+          89e4ea41e6764d0055d665f66549860e661a5550996d33eef2cee005f12fd9c5  GoLiv-Edit-App-0.2.0-macOS.dmg
+          673ce0de110f9c269c418d2e68b999389458c38ac765f53f99b451480403938a  GoLiv-Edit-App-0.2.0-macOS.zip
+          $hash  GoLiv-Edit-App-0.2.0-Windows-x64.zip
+          "@ | Set-Content -Encoding ascii (Join-Path $PWD 'artifacts/SHA256SUMS.txt')
+
+      - name: Verify packaged Windows app launches
+        shell: pwsh
+        run: |
+          $extract = Join-Path $env:RUNNER_TEMP 'golive-package-check'
+          Expand-Archive 'artifacts/GoLiv-Edit-App-0.2.0-Windows-x64.zip' $extract -Force
+          $proc = Start-Process -FilePath (Join-Path $extract 'GoLivEdit.exe') -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(45)
+            do {
+              Start-Sleep -Milliseconds 500
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "Packaged app exited during startup (code $($proc.ExitCode))" }
+            } while ($proc.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline)
+            if ($proc.MainWindowHandle -eq 0) { throw 'Packaged app did not show a mixer window.' }
+          }
+          finally { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force } }
+
+      - name: Upload Windows beta package
         uses: actions/upload-artifact@v4
         with:
           name: GoLivEdit-Windows-x64-beta
-          path: artifacts/GoLivEdit/
+          path: |
+            artifacts/GoLiv-Edit-App-0.2.0-Windows-x64.zip
+            artifacts/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Replace Windows release download
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" `
+            artifacts/GoLiv-Edit-App-0.2.0-Windows-x64.zip artifacts/SHA256SUMS.txt --clobber
