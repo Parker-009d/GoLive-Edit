@@ -72,7 +72,7 @@ jobs:
                 <Extensions><desktop:Extension Category="windows.fullTrustProcess" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication"><desktop:FullTrustProcess /></desktop:Extension></Extensions>
               </Application>
             </Applications>
-            <Capabilities><Capability Name="internetClientServer" /><Capability Name="privateNetworkClientServer" /><DeviceCapability Name="microphone" /><rescap:Capability Name="runFullTrust" /></Capabilities>
+            <Capabilities><Capability Name="internetClientServer" /><Capability Name="privateNetworkClientServer" /><rescap:Capability Name="runFullTrust" /><DeviceCapability Name="microphone" /></Capabilities>
           </Package>
           '@
           Set-Content -LiteralPath (Join-Path $package 'AppxManifest.xml') -Value $manifest -Encoding utf8
