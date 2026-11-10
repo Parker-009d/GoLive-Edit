@@ -6,7 +6,7 @@
 
 **A complete creative mixing surface for the people behind the sound.** Shape two inputs with gate, EQ, compression, and send-based effects. Build a stereo mix, record locally, or take your channel controls into OBS. Then step away from the desk and keep mixing from your phone.
 
-[**Get GoLiv Edit**](https://github.com/Parker-009d/GoLive-Edit/releases/latest) · [Visit the official website](https://parker-009d.github.io/GoLive-Edit/) · [See what it can do](#made-for-the-moment-the-sound-needs-you) · [See all the connections](#how-the-connections-work)
+[**Get GoLiv Edit**](https://github.com/Parker-009d/GoLive-Edit/releases/latest) · [See what it can do](#made-for-the-moment-the-sound-needs-you) · [See all the connections](#how-the-connections-work)
 
 </div>
 
@@ -65,15 +65,14 @@ With a phone paired on your local network, you can make a quick adjustment from 
 
 ## Downloads
 
-Choose the build for your device from [GoLiv Edit Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest), or download the Windows Store edition from [Microsoft Store](https://apps.microsoft.com/detail/9MWPT10ZWLVZ).
+Choose the build for your device from [GoLiv Edit Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
 
 | Device | Build | Status |
 | --- | --- | --- |
 | **Mac** | `.dmg` | Version 0.2.0. Universal Intel and Apple Silicon build; includes Local Live Gate, EQ, compressor, and FX processing. |
-| **Windows** · x64 | `.zip` with `GoLivEdit.exe` | Local Live recording includes Gate, EQ, and compressor processing. FX processing and OBS source processor controls are not included in this Windows build. WebView2 Runtime is required. |
-| **Windows Store** | Microsoft Store | [GoLive Edit on Microsoft Store](https://apps.microsoft.com/detail/9MWPT10ZWLVZ). This is the published Store listing; package updates are submitted through Partner Center. |
+| **Windows** · x64 | `.zip` with `GoLivEdit.exe` | Local Live recording includes Gate, parametric EQ, compressor, FX, and stereo processing. OBS Control applies channel faders, mute, Gate, EQ, compressor, and FX to assigned OBS sources. WebView2 Runtime is required. |
 
-The Windows x64 GitHub package is a self-contained executable. The Windows Store listing is maintained separately, and its Store package can differ from the latest GitHub download while an update is being prepared or certified.
+The Windows x64 package is built from the included source and includes the files GoLiv Edit needs to run.
 
 ## Get started
 
