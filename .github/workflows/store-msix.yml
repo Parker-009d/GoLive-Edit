@@ -82,8 +82,11 @@ jobs:
           $msix = Join-Path $PWD 'artifacts/GoLiv-Edit-App-0.2.2.0-x64.msix'
           & $makeappx.FullName pack /d $package /p $msix /o
           if ($LASTEXITCODE -ne 0) { throw 'makeappx failed to create Store package.' }
-          & $makeappx.FullName validate /p $msix
-          if ($LASTEXITCODE -ne 0) { throw 'MSIX validation failed.' }
+          $roundTrip = Join-Path $PWD 'artifacts/msix-roundtrip'
+          & $makeappx.FullName unpack /p $msix /d $roundTrip
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX package round-trip check failed.' }
+          [xml]$manifestCheck = Get-Content (Join-Path $roundTrip 'AppxManifest.xml')
+          if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.2.0') { throw 'MSIX identity or version does not match the existing Store product.' }
           Write-Host "Created $msix with the reserved GoLive Edit Store identity."
 
       - name: Upload Store package
