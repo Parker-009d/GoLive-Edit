@@ -1,0 +1,118 @@
+name: Build GoLive Edit Microsoft Store MSIX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-store-package:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract Windows source bundle
+        shell: pwsh
+        run: Expand-Archive -LiteralPath windows-host-source.zip -DestinationPath . -Force
+      - name: Verify Windows UI matches installed Mac app
+        shell: pwsh
+        run: |
+          $expected = @{
+            'macos-host/windows-host/Resources/golive-edit-mixer.html' = '04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642'
+            'macos-host/windows-host/Resources/phone-remote.html' = '5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd'
+          }
+          foreach ($path in $expected.Keys) {
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected[$path]) { throw "Mac/Windows UI mismatch: $path ($actual)" }
+          }
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build GoLive OBS VST processor
+        shell: pwsh
+        run: |
+          $plugin = Join-Path $PWD 'macos-host/windows-host/Resources/GoLiveFX.dll'
+          cl.exe /nologo /std:c++17 /O2 /LD macos-host/vst-plugin/GoLiveFX.cpp /link "/OUT:$plugin" /EXPORT:VSTPluginMain
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
+      - name: Publish Windows x64 app
+        shell: pwsh
+        run: dotnet publish macos-host/windows-host/GoLive.Windows.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:Version=0.2.3 -p:AssemblyVersion=0.2.3.0 -p:FileVersion=0.2.3.0 --output artifacts/GoLivEdit
+      - name: Create Store manifest and logo assets
+        shell: pwsh
+        run: |
+          $package = Join-Path $PWD 'artifacts/msix'
+          New-Item -ItemType Directory -Force -Path $package, (Join-Path $package 'Assets') | Out-Null
+          Copy-Item 'artifacts/GoLivEdit/*' $package -Recurse -Force
+          Remove-Item (Join-Path $package '*.pdb') -Force -ErrorAction SilentlyContinue
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::new((Join-Path $PWD 'macos-host/windows-host/Resources/GoLive.ico'))
+          foreach ($size in @(44, 150, 50)) {
+            $bitmap = [System.Drawing.Bitmap]::new($size, $size)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.Clear([System.Drawing.Color]::Transparent)
+            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $graphics.DrawImage($icon.ToBitmap(), 0, 0, $size, $size)
+            $name = switch ($size) { 44 { 'Square44x44Logo.png' } 150 { 'Square150x150Logo.png' } 50 { 'StoreLogo.png' } }
+            $bitmap.Save((Join-Path $package "Assets/$name"), [System.Drawing.Imaging.ImageFormat]::Png)
+            $graphics.Dispose(); $bitmap.Dispose()
+          }
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap rescap">
+            <Identity Name="48997GoLive.GoLiveEdit" Publisher="CN=50A5B27E-E225-4A30-A20B-688823B9F443" Version="0.2.3.0" ProcessorArchitecture="x64" />
+            <Properties>
+              <DisplayName>GoLive Edit</DisplayName>
+              <PublisherDisplayName>GoLive</PublisherDisplayName>
+              <Logo>Assets/StoreLogo.png</Logo>
+            </Properties>
+            <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+            <Resources><Resource Language="en-us" /></Resources>
+            <Applications>
+              <Application Id="GoLivEdit" Executable="GoLivEdit.exe" EntryPoint="Windows.FullTrustApplication">
+                <uap:VisualElements DisplayName="GoLive Edit" Description="Two-channel audio mixer with live processing, recording, OBS control, and phone remote." BackgroundColor="#07111F" Square150x150Logo="Assets/Square150x150Logo.png" Square44x44Logo="Assets/Square44x44Logo.png" />
+              </Application>
+            </Applications>
+            <Capabilities>
+              <Capability Name="internetClient" />
+              <Capability Name="privateNetworkClientServer" />
+              <DeviceCapability Name="microphone" />
+              <rescap:Capability Name="runFullTrust" />
+            </Capabilities>
+          </Package>
+          '@ | Set-Content -LiteralPath (Join-Path $package 'AppxManifest.xml') -Encoding utf8
+          [xml]$null = Get-Content -Raw (Join-Path $package 'AppxManifest.xml')
+      - name: Build and validate Store MSIX
+        shell: pwsh
+        run: |
+          $makeappx = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\MakeAppx.exe' | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $makeappx) { throw 'Windows SDK MakeAppx.exe was not found.' }
+          $msix = Join-Path $PWD 'artifacts/GoLivEdit-0.2.3.0-x64.msix'
+          & $makeappx pack /d (Join-Path $PWD 'artifacts/msix') /p $msix /o
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX creation failed.' }
+          & $makeappx validate /p $msix
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX validation failed.' }
+          $verify = Join-Path $env:RUNNER_TEMP 'golive-msix-verify'
+          & $makeappx unpack /p $msix /d $verify /o
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX unpack verification failed.' }
+          [xml]$manifest = Get-Content -Raw (Join-Path $verify 'AppxManifest.xml')
+          $identity = $manifest.Package.Identity
+          if ($identity.Name -ne '48997GoLive.GoLiveEdit' -or $identity.Publisher -ne 'CN=50A5B27E-E225-4A30-A20B-688823B9F443' -or $identity.Version -ne '0.2.3.0') { throw 'Store package identity/version mismatch.' }
+          $checks = @{
+            'Resources/golive-edit-mixer.html' = '04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642'
+            'Resources/phone-remote.html' = '5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd'
+          }
+          foreach ($path in $checks.Keys) {
+            $actual = (Get-FileHash -LiteralPath (Join-Path $verify $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $checks[$path]) { throw "Packaged UI mismatch: $path ($actual)" }
+          }
+          Write-Host "PASS: package identity $($identity.Name), version $($identity.Version), mixer/remote resources match installed Mac app."
+      - name: Upload Store submission package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoLive-Edit-Store-MSIX-0.2.3
+          path: artifacts/GoLivEdit-0.2.3.0-x64.msix
+          if-no-files-found: error
