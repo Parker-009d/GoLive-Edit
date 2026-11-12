@@ -24,18 +24,32 @@ jobs:
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/golive-dmg"
-          unpack="$work/unpacked"
+          mount="$RUNNER_TEMP/golive-mounted"
           stage="$RUNNER_TEMP/golive-stage"
-          mkdir -p "$work" "$unpack" "$stage"
-          gh release download "$RELEASE_TAG" --repo Parker-009d/GoLive-Edit --pattern 'GoLiv-Edit-App-0.2.0-macOS.zip' --dir "$work"
-          ditto -x -k "$work/GoLiv-Edit-App-0.2.0-macOS.zip" "$unpack"
-          app="$unpack/GoLiv-Edit-App-0.2.0/GoLiv Edit App.app"
-          if [ ! -d "$app" ]; then
-            echo 'The macOS release ZIP does not contain GoLiv Edit App.app.' >&2
-            find "$unpack" -maxdepth 4 -print >&2
+          mkdir -p "$work" "$mount" "$stage"
+          gh release download "$RELEASE_TAG" --repo Parker-009d/GoLive-Edit --pattern 'GoLiv-Edit-App-0.2.0-macOS.dmg' --dir "$work"
+          source_dmg="$work/GoLiv-Edit-App-0.2.0-macOS.dmg"
+          hdiutil attach "$source_dmg" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true' EXIT
+          app="$(find "$mount" -maxdepth 4 -type d -name 'GoLiv Edit App.app' -print -quit)"
+          if [ -n "$app" ]; then
+            ditto "$app" "$stage/GoLiv Edit App.app"
+          elif [ -f "$mount/Contents/Info.plist" ]; then
+            mkdir -p "$stage/GoLiv Edit App.app/Contents"
+            ditto "$mount/Contents" "$stage/GoLiv Edit App.app/Contents"
+          else
+            echo 'The released DMG contains no GoLiv Edit App bundle contents.' >&2
+            find "$mount" -maxdepth 4 -print >&2
             exit 1
           fi
-          ditto "$app" "$stage/GoLiv Edit App.app"
+          expected_mixer=04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642
+          expected_remote=5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd
+          actual_mixer="$(shasum -a 256 "$stage/GoLiv Edit App.app/Contents/Resources/golive-edit-mixer.html" | awk '{print $1}')"
+          actual_remote="$(shasum -a 256 "$stage/GoLiv Edit App.app/Contents/Resources/phone-remote.html" | awk '{print $1}')"
+          if [ "$actual_mixer" != "$expected_mixer" ] || [ "$actual_remote" != "$expected_remote" ]; then
+            echo 'The DMG app bundle resources do not match the installed Mac build.' >&2
+            exit 1
+          fi
           ln -s /Applications "$stage/Applications"
           cat > "$stage/INSTALL.txt" <<'EOF'
           INSTALL GOLIV EDIT APP
@@ -46,7 +60,9 @@ jobs:
           EOF
           hdiutil create -volname 'GoLiv Edit App' -srcfolder "$stage" -ov -format UDZO "$work/GoLiv-Edit-App-0.2.0-macOS.dmg"
           hdiutil verify "$work/GoLiv-Edit-App-0.2.0-macOS.dmg"
+          hdiutil detach "$mount"
+          trap - EXIT
           gh release download "$RELEASE_TAG" --repo Parker-009d/GoLive-Edit --pattern '*.zip' --dir "$work"
           cd "$work"
-          shasum -a 256 GoLiv-Edit-App-0.2.0-macOS.dmg GoLiv-Edit-App-0.2.0-macOS.zip GoLiv-Edit-App-0.2.0-Windows-x64.zip > SHA256SUMS.txt
+          shasum -a 256 GoLiv-Edit-App-0.2.0-macOS.dmg GoLiv-Edit-App-0.2.0-Windows-x64.zip > SHA256SUMS.txt
           gh release upload "$RELEASE_TAG" GoLiv-Edit-App-0.2.0-macOS.dmg SHA256SUMS.txt --repo Parker-009d/GoLive-Edit --clobber
