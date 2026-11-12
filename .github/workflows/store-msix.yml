@@ -17,6 +17,18 @@ jobs:
         shell: pwsh
         run: Expand-Archive -LiteralPath windows-host-source.zip -DestinationPath . -Force
 
+      - name: Verify mixer and phone remote match the installed Mac app
+        shell: pwsh
+        run: |
+          $expected = @{
+            'macos-host/windows-host/Resources/golive-edit-mixer.html' = '04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642'
+            'macos-host/windows-host/Resources/phone-remote.html' = '5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd'
+          }
+          foreach ($path in $expected.Keys) {
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected[$path]) { throw "Mac/Windows UI mismatch: $path ($actual)" }
+            Write-Host "MATCH: $path"
+          }
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -87,6 +99,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'MSIX package round-trip check failed.' }
           [xml]$manifestCheck = Get-Content (Join-Path $roundTrip 'AppxManifest.xml')
           if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.2.0' -or $manifestCheck.Package.Properties.DisplayName -ne 'GoLive Edit') { throw 'MSIX identity, display name, or version does not match the existing Store product.' }
+          $resources = @{
+            'Resources/golive-edit-mixer.html' = '04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642'
+            'Resources/phone-remote.html' = '5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd'
+          }
+          foreach ($resource in $resources.Keys) {
+            $actual = (Get-FileHash -LiteralPath (Join-Path $roundTrip $resource) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $resources[$resource]) { throw "Packaged UI mismatch: $resource ($actual)" }
+          }
           Write-Host "Created $msix with the reserved GoLive Edit Store identity."
 
       - name: Upload Store package
