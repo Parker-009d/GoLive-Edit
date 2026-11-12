@@ -49,7 +49,7 @@ jobs:
         run: >-
           dotnet publish macos-host/windows-host/GoLive.Windows.csproj
           --configuration Release --runtime win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:Version=0.2.3 -p:AssemblyVersion=0.2.3.0 -p:FileVersion=0.2.3.0
           --output artifacts/GoLivEdit
 
       - name: Create Store package with existing product identity
@@ -74,7 +74,7 @@ jobs:
           $manifest = @'
           <?xml version="1.0" encoding="utf-8"?>
           <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap desktop rescap">
-            <Identity Name="48997GoLive.GoLiveEdit" Publisher="CN=50A5B27E-E225-4A30-A20B-688823B9F443" Version="0.2.2.0" ProcessorArchitecture="x64" />
+            <Identity Name="48997GoLive.GoLiveEdit" Publisher="CN=50A5B27E-E225-4A30-A20B-688823B9F443" Version="0.2.3.0" ProcessorArchitecture="x64" />
             <Properties><DisplayName>GoLive Edit</DisplayName><PublisherDisplayName>GoLive</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
             <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
             <Resources><Resource Language="en-us" /></Resources>
@@ -91,14 +91,14 @@ jobs:
           $kits = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Windows Kits\10\bin'
           $makeappx = Get-ChildItem $kits -Filter makeappx.exe -Recurse | Where-Object { $_.FullName.EndsWith('\x64\makeappx.exe') } | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $makeappx) { throw 'Windows SDK makeappx.exe was not found.' }
-          $msix = Join-Path $PWD 'artifacts/GoLiv-Edit-App-0.2.2.0-x64.msix'
+          $msix = Join-Path $PWD 'artifacts/GoLiv-Edit-App-0.2.3.0-x64.msix'
           & $makeappx.FullName pack /d $package /p $msix /o
           if ($LASTEXITCODE -ne 0) { throw 'makeappx failed to create Store package.' }
           $roundTrip = Join-Path $PWD 'artifacts/msix-roundtrip'
           & $makeappx.FullName unpack /p $msix /d $roundTrip
           if ($LASTEXITCODE -ne 0) { throw 'MSIX package round-trip check failed.' }
           [xml]$manifestCheck = Get-Content (Join-Path $roundTrip 'AppxManifest.xml')
-          if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.2.0' -or $manifestCheck.Package.Properties.DisplayName -ne 'GoLive Edit') { throw 'MSIX identity, display name, or version does not match the existing Store product.' }
+          if ($manifestCheck.Package.Identity.Name -ne '48997GoLive.GoLiveEdit' -or $manifestCheck.Package.Identity.Version -ne '0.2.3.0' -or $manifestCheck.Package.Properties.DisplayName -ne 'GoLive Edit') { throw 'MSIX identity, display name, or version does not match the existing Store product.' }
           $resources = @{
             'Resources/golive-edit-mixer.html' = '04c5c8b2c83f4986a814c848da158ccdc0a8e62970c8b0a79d0a6d16f4b51642'
             'Resources/phone-remote.html' = '5d4ed49ab4e0f91f75e2ef16c8e70dd78510757037bcfec73acefcb5a7123efd'
@@ -112,6 +112,6 @@ jobs:
       - name: Upload Store package
         uses: actions/upload-artifact@v4
         with:
-          name: GoLiv-Edit-Store-MSIX-0.2.2.0
-          path: artifacts/GoLiv-Edit-App-0.2.2.0-x64.msix
+          name: GoLiv-Edit-Store-MSIX-0.2.3.0
+          path: artifacts/GoLiv-Edit-App-0.2.3.0-x64.msix
           if-no-files-found: error
