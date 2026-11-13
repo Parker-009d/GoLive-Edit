@@ -1,37 +1,61 @@
 <div align="center">
 
 
+
+
 # GoLiv Edit
+
+
 
 
 ### Your sound, in your hands.
 
 
+
+
 **A complete creative mixing surface for the people behind the sound.** Shape two inputs with gate, EQ, compression, and send-based effects. Build a stereo mix, record locally, or take your channel controls into OBS. Then step away from the desk and keep mixing from your phone.
+
+
 
 
 [**Get GoLiv Edit**](https://github.com/Parker-009d/GoLive-Edit/releases/latest) · [See what it can do](#made-for-the-moment-the-sound-needs-you) · [See all the connections](#how-the-connections-work) · [Phone share card (PNG)](https://github.com/Parker-009d/GoLive-Edit/releases/download/v0.2.0/GoLive-Edit-phone-share-card.png) · [Phone share card (PDF)](https://github.com/Parker-009d/GoLive-Edit/releases/download/v0.2.0/GoLive-Edit-share-card.pdf)
 
 
+
+
 </div>
+
+
 
 
 ---
 
 
+
+
 ## More feel. More space. More control.
+
+
 
 
 A voice that needs warmth. A keyboard that needs room. A performance that deserves more than a dry signal.
 
 
+
+
 In the tested macOS app, GoLiv Edit puts the sound-shaping tools in one focused surface. Sculpt each channel with a noise gate, four-band parametric EQ with low cut, and a compressor. Add depth with four assignable FX slots, each with channel sends and a return in the mix. Bring it all together on the stereo master, with clear meters and a live spectrum analyzer to help you follow what is happening.
+
+
 
 
 Use it for a vocal and keys, a two-mic session, a podcast, rehearsal, or a small live setup. Connect a compatible audio interface; GoLiv Edit is built around the sound coming from your gear, not one particular interface brand.
 
 
+
+
 ## Made for the moment the sound needs you
+
+
 
 
 - **Two channels. One coherent mix.** Keep your sources separate while shaping and balancing them together into a stereo master.
@@ -42,19 +66,71 @@ Use it for a vocal and keys, a two-mic session, a podcast, rehearsal, or a small
 - **Record the performance, not a pile of setup steps.** Capture a stereo WAV mix locally in Local Live.
 - **Take the desk with you.** Pair a phone on the same Wi-Fi network to adjust supported mixer controls from across the room. Audio stays on the computer; the phone is a control surface.
 - **Bring your mix workflow to OBS.** Connect over OBS WebSocket, assign sources to channels, and control the mapped audio from the mixer.
-- **Keep a clear hand on the master.** Channel mute controls that channel; Main mute silences the full mix.
 
+## See the current mixer surface
 
-## Two ways to work, one familiar mixer
+The screenshots below show the updated GoLive Edit surface: channel input routing and Local Live, the gate, parametric EQ with live analyzer, and assignable FX sends and returns. The QR and pairing panel has been left out of these public screenshots.
 
+![GoLive Edit channel input routing, channel strips, and Local Live recording panel](docs/images/desktop-channel-surface.png)
 
-### Local Live — make the mix, even with OBS closed
+![GoLive Edit four FX slots, effects returns, and channel sends](docs/images/fx-sends-returns.png)
 
+![GoLive Edit parametric EQ with live spectrum analyzer](docs/images/parametric-eq-live-analyzer.png)
 
-Choose your interface, set your channel levels, shape the sound, route FX, and record the processed stereo mix as a WAV. Local Live is for the room, rehearsal, practice, podcast, or performance where you want the mixer to be the whole setup.
+![GoLive Edit noise gate controls and gain envelope](docs/images/noise-gate.png)
 
+## How the connections work
 
-### OBS Control — keep your audio controls close to the stream
+This animated diagram shows how audio and control data move through the whole app. The moving dots follow the signal; dashed lines show control or meter data.
 
+![Animated GoLiv Edit flow: interface audio through Local Live processors to stereo WAV, OBS sources through GoLiv filters to OBS output, and phone remote controls and meter data](signal-flow.gif)
 
-Connect to OBS Studio using its WebSocket server and map an OBS audio input to each channel. Use GoLiv Edit to manage the assigned sources and available stream controls from one surface. OBS remains responsible for the stream itself.
+### Follow each path
+
+- **Local Live recording:** Choose your interface and save location. Input 1 feeds Channel 1 and input 2 feeds Channel 2. Each lane runs through Gate → parametric EQ → compressor → assigned FX send and wet return → channel fader and mute/solo. Both lanes join at the stereo master, pass through the soft limiter, and write a 24-bit stereo WAV. The meters and analyzer tap the interface inputs before processing.
+- **OBS Control:** Connect to OBS with its WebSocket host, port, and password; assign one OBS source to each channel. GoLiv Edit applies the channel’s Gate, EQ, compressor, and FX controls to the assigned OBS source filters. The audio stays in OBS and then reaches the OBS mixer and stream/recording output. The WebSocket carries control messages, not audio.
+- **Phone remote:** Pair the phone and Mac on the same Wi-Fi. Fader and mute/solo changes travel to GoLiv Edit; meter/analyzer data returns to the phone. No audio travels to the phone.
+- **Local Live into OBS:** Local Live WAV recording and OBS recording/streaming are separate paths. OBS Control does not automatically route the Local Live mix into OBS; that requires a separate audio input route.
+
+## Shape the sound. Give it space. Make it yours.
+
+Start with a gate for focus, EQ for character, and compression for control. Then choose the space or movement the performance needs: a subtle room, a long hall, a plate sheen, a stereo echo, or a moving chorus. GoLiv Edit gives you four separate FX returns and channel-by-channel sends, so a vocal can sit in a different space from the keys without losing the balance of the mix.
+
+Choose from practical vocal and keyboard starting points, then tailor every setting to the instrument, microphone, performer, and room in front of you. Presets are inspiration—not one-size-fits-all recipes. Your ears stay in charge.
+
+With a phone paired on your local network, you can make a quick adjustment from the recording chair, the other side of the room, or beside the performer. The remote sends control changes and receives meter information; it does not stream audio to your phone.
+
+## Downloads
+
+Choose the build for your device from [GoLiv Edit Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
+
+| Device | Build | Status |
+| --- | --- | --- |
+| **Mac** | .dmg | Version 0.2.0. Universal Intel and Apple Silicon build; includes Local Live Gate, EQ, compressor, and FX processing. |
+| **Windows** · x64 | .zip with GoLivEdit.exe | Local Live recording includes Gate, parametric EQ, compressor, FX, and stereo processing. OBS Control applies channel faders, mute, Gate, EQ, compressor, and FX to assigned OBS sources. WebView2 Runtime is required. |
+
+The Windows x64 package is built from the included source and includes the files GoLiv Edit needs to run.
+
+## Get started
+
+1. Download the build for your operating system from [Releases](https://github.com/Parker-009d/GoLive-Edit/releases/latest).
+2. Connect your audio interface and choose it in Local Live, or open OBS Control and connect to OBS.
+3. Set conservative levels first, then adjust the mix while listening to the actual source.
+4. For phone control, keep both devices on the same Wi-Fi network and pair from GoLiv Edit.
+
+## Built for real rooms
+
+GoLiv Edit is for sound engineers, musicians, streamers, and creators who want useful control without turning every session into a routing project. It brings the channel strip, stereo mix, local recording, OBS controls, and remote surface together—so the technology can get out of the way and the sound can take center stage.
+
+**Gate the noise. Shape the tone. Add the space. Own the mix.**
+
+Plug in your interface, bring the channels to life, and make a mix that feels like yours. Go live when you’re ready.
+
+---
+
+### Feedback
+
+Found a problem or have an idea? [Open an issue](https://github.com/Parker-009d/GoLive-Edit/issues) with your operating system, app version, audio interface, and steps to reproduce. Please don’t post passwords, stream keys, or private recordings.
+
+### Created by Alex Parker
+© 2026 Alex Parker. GoLiv Edit is an independently created product. Download the official build for your device and use it in your sessions. For partnerships, redistribution, or permission to reuse the source or branding, contact the creator.
