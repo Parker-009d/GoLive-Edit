@@ -6,7 +6,7 @@
 
 **A complete creative mixing surface for the people behind the sound.** Shape two inputs with gate, EQ, compression, and send-based effects. Build a stereo mix, record locally, or take your channel controls into OBS. Then step away from the desk and keep mixing from your phone.
 
-[**Get GoLiv Edit**](https://github.com/Parker-009d/GoLive-Edit/releases/latest) · [See what it can do](#made-for-the-moment-the-sound-needs-you) · [See all the connections](#how-the-connections-work)
+[**Get GoLiv Edit**](https://github.com/Parker-009d/GoLive-Edit/releases/latest) · [See what it can do](#made-for-the-moment-the-sound-needs-you) · [See all the connections](#how-the-connections-work) · [Download the share card (PDF)](docs/GoLive-Edit-share-card.pdf)
 
 </div>
 
