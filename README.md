@@ -42,6 +42,18 @@ Choose your interface, set your channel levels, shape the sound, route FX, and r
 
 Connect to OBS Studio using its WebSocket server and map an OBS audio input to each channel. Use GoLiv Edit to manage the assigned sources and available stream controls from one surface. OBS remains responsible for the stream itself.
 
+## See the current mixer surface
+
+The screenshots below show the updated GoLive Edit surface: channel input routing and Local Live, the gate, parametric EQ with live analyzer, and assignable FX sends and returns. The QR and pairing panel has been left out of these public screenshots.
+
+![GoLive Edit channel input routing, channel strips, and Local Live recording panel](docs/images/desktop-channel-surface.png)
+
+![GoLive Edit four FX slots, effects returns, and channel sends](docs/images/fx-sends-returns.png)
+
+![GoLive Edit parametric EQ with live spectrum analyzer](docs/images/parametric-eq-live-analyzer.png)
+
+![GoLive Edit noise gate controls and gain envelope](docs/images/noise-gate.png)
+
 ## How the connections work
 
 This animated diagram shows how audio and control data move through the whole app. The moving dots follow the signal; dashed lines show control or meter data.
