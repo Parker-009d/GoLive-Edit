@@ -332,21 +332,29 @@ internal sealed class MixerWindow : Form
             }
         }
         if (writer is null && monitorBuffer is null) return;
+        var route = new int[24]; var leftGain = new float[24]; var rightGain = new float[24]; var active = new bool[24];
+        for (var i = 0; i < 24; i++)
+        {
+            var c = ch.ValueKind == JsonValueKind.Array && ch.GetArrayLength() > i ? ch[i] : default;
+            route[i] = InputIndex(c, i);
+            active[i] = !muted[i] && route[i] >= 0 && route[i] < channels;
+            var gain = ChannelGain(ch, i, masterDb);
+            var pan = c.ValueKind == JsonValueKind.Object && c.TryGetProperty("pan", out var pv) && pv.TryGetDouble(out var p) ? Math.Clamp(p, -1, 1) : 0;
+            leftGain[i] = (float)(gain * Math.Sqrt((1-pan)*.5));
+            rightGain[i] = (float)(gain * Math.Sqrt((1+pan)*.5));
+        }
         var output = new byte[frames * 6]; var pos = 0;
         for (var frame = 0; frame < frames; frame++)
         {
             double left = 0, right = 0;
             for (var i = 0; i < 24; i++)
             {
-                var c = ch.ValueKind == JsonValueKind.Array && ch.GetArrayLength() > i ? ch[i] : default;
-                var inputIndex = InputIndex(c, i);
-                var input = inputIndex >= 0 && inputIndex < channels ? samples[frame * channels + inputIndex] : 0f;
-                var processed = muted[i] ? 0f : localDSP[i].Process(input, format.SampleRate);
-                processed = localFX.ProcessChannel(processed, i, muted[i], format.SampleRate);
-                var gain = (float)ChannelGain(ch, i, masterDb);
-                var pan = c.ValueKind == JsonValueKind.Object && c.TryGetProperty("pan", out var pv) && pv.TryGetDouble(out var p) ? Math.Clamp(p, -1, 1) : 0;
-                left += processed * gain * Math.Sqrt((1-pan)*.5);
-                right += processed * gain * Math.Sqrt((1+pan)*.5);
+                if (!active[i]) continue;
+                var input = samples[frame * channels + route[i]];
+                var processed = localDSP[i].Process(input, format.SampleRate);
+                processed = localFX.ProcessChannel(processed, i, false, format.SampleRate);
+                left += processed * leftGain[i];
+                right += processed * rightGain[i];
             }
             WritePcm24(output, ref pos, SoftLimit((float)left));
             WritePcm24(output, ref pos, SoftLimit((float)right));
