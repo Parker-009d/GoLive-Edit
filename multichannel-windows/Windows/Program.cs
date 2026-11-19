@@ -48,6 +48,7 @@ internal sealed class MixerWindow : Form
     private DateTime[] clipUntil = new DateTime[24];
     private double sampleRate;
     private int channelCount;
+    private volatile bool captureHasData;
     private string selectedUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", "") as string ?? "";
     private readonly ObsSocket obs = new();
     private string pairingCode = NewPairCode();
@@ -117,7 +118,7 @@ internal sealed class MixerWindow : Form
             switch (handler)
             {
                 case "goLiveAudioDevice":
-                    var index = body.GetInt32(); var inputs = GetInputs();
+                    var index = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("index", out var inputIndexValue) ? inputIndexValue.GetInt32() : body.GetInt32(); var inputs = GetInputs();
                     if (index >= 0 && index < inputs.Count) { selectedDevice = inputs[index]; selectedUid = selectedDevice.ID; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", selectedUid); StartCapture(selectedDevice); await PublishAudioDevicesAsync(); }
                     else if (index == -1) { selectedDevice = null; StopCapture(); await PublishAudioDevicesAsync(); }
                     break;
@@ -183,6 +184,7 @@ internal sealed class MixerWindow : Form
         StopCapture();
         try
         {
+            captureHasData = false;
             capture = new WasapiCapture(device);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
@@ -232,6 +234,7 @@ internal sealed class MixerWindow : Form
     private void CaptureAudio(byte[] bytes, int length, WaveFormat? format)
     {
         if (format is null || length < format.BlockAlign) return;
+        if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
         var frames = length / format.BlockAlign; var channels = format.Channels;
         var samples = new float[frames * channels]; var meterChannels = Math.Min(24, channels); var peak = new double[meterChannels]; var sum = new double[meterChannels];
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
