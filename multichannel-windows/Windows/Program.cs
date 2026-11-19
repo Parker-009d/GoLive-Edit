@@ -36,6 +36,7 @@ internal sealed class MixerWindow : Form
     private MMDevice? selectedOutput;
     private WasapiOut? monitorOut;
     private BufferedWaveProvider? monitorBuffer;
+    private int monitorSampleRate;
     private WasapiCapture? capture;
     private WaveFileWriter? writer;
     private JsonElement mixerState;
@@ -205,8 +206,8 @@ internal sealed class MixerWindow : Form
         if (selectedOutput is null) return;
         try
         {
-            var rate = capture?.WaveFormat.SampleRate ?? 48000;
-            monitorBuffer = new BufferedWaveProvider(new WaveFormat(rate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(1500) };
+            monitorSampleRate = selectedOutput.AudioClient.MixFormat.SampleRate;
+            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(1500) };
             monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, false, 200);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
@@ -305,7 +306,29 @@ internal sealed class MixerWindow : Form
             WritePcm24(output, ref pos, SoftLimit((float)right));
         }
         lock (recordLock) { writer?.Write(output, 0, output.Length); }
-        try { monitorBuffer?.AddSamples(output, 0, output.Length); } catch { }
+        try { var monitorBytes = format.SampleRate == monitorSampleRate ? output : ResamplePcm24(output, frames, format.SampleRate, monitorSampleRate); monitorBuffer?.AddSamples(monitorBytes, 0, monitorBytes.Length); } catch { }
+    }
+
+    private static byte[] ResamplePcm24(byte[] input, int inputFrames, int inputRate, int outputRate)
+    {
+        if (inputRate <= 0 || outputRate <= 0 || inputFrames <= 0) return input;
+        var outputFrames = Math.Max(1, (int)Math.Round(inputFrames * (double)outputRate / inputRate));
+        var output = new byte[outputFrames * 6];
+        var position = 0;
+        for (var frame = 0; frame < outputFrames; frame++)
+        {
+            var sourcePosition = frame * (double)inputRate / outputRate;
+            var sourceFrame = Math.Min(inputFrames - 1, (int)sourcePosition);
+            var nextFrame = Math.Min(inputFrames - 1, sourceFrame + 1);
+            var fraction = sourcePosition - sourceFrame;
+            for (var channel = 0; channel < 2; channel++)
+            {
+                var a = Read24(input, sourceFrame * 6 + channel * 3) / 8388608f;
+                var b = Read24(input, nextFrame * 6 + channel * 3) / 8388608f;
+                WritePcm24(output, ref position, (float)(a + (b - a) * fraction));
+            }
+        }
+        return output;
     }
 
     private static int InputIndex(JsonElement channel, int fallback)
