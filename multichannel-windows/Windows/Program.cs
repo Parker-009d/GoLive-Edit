@@ -187,7 +187,7 @@ internal sealed class MixerWindow : Form
         try
         {
             captureHasData = false; captureHasSignal = false; captureError = "";
-            capture = new WasapiCapture(device);
+            capture = new WasapiCapture(device, false, 200);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
             activeCapture.DataAvailable += (_, e) => CaptureAudio(e.Buffer, e.BytesRecorded, activeCapture.WaveFormat);
@@ -207,7 +207,7 @@ internal sealed class MixerWindow : Form
         {
             var rate = capture?.WaveFormat.SampleRate ?? 48000;
             monitorBuffer = new BufferedWaveProvider(new WaveFormat(rate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(1500) };
-            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 120);
+            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, false, 200);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
         catch (Exception ex) { _ = SetRecordingStatusAsync("Monitor output error: " + ex.Message, false, ""); monitorOut = null; monitorBuffer = null; }
@@ -310,7 +310,9 @@ internal sealed class MixerWindow : Form
 
     private static int InputIndex(JsonElement channel, int fallback)
     {
-        if (channel.ValueKind != JsonValueKind.Object || !channel.TryGetProperty("input", out var value) || value.ValueKind != JsonValueKind.String) return fallback;
+        if (channel.ValueKind != JsonValueKind.Object) return fallback;
+        if (!channel.TryGetProperty("inp", out var value) && !channel.TryGetProperty("input", out value)) return fallback;
+        if (value.ValueKind != JsonValueKind.String) return fallback;
         var source = value.GetString() ?? "";
         if (source.Contains("no input", StringComparison.OrdinalIgnoreCase)) return -1;
         var start = source.IndexOf("IN ", StringComparison.OrdinalIgnoreCase);
