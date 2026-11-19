@@ -206,7 +206,7 @@ internal sealed class MixerWindow : Form
                 }
                 catch (OperationCanceledException) { }
             });
-            capture = new WasapiCapture(device, false, 200);
+            capture = new WasapiCapture(device, true, 60);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
             activeCapture.DataAvailable += (_, e) =>
@@ -233,7 +233,7 @@ internal sealed class MixerWindow : Form
         {
             monitorSampleRate = selectedOutput.AudioClient.MixFormat.SampleRate;
             monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(1500) };
-            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, false, 200);
+            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 60);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
         catch (Exception ex) { _ = SetRecordingStatusAsync("Monitor output error: " + ex.Message, false, ""); monitorOut = null; monitorBuffer = null; }
