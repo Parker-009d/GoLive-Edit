@@ -27,6 +27,7 @@ internal sealed class MixerWindow : Form
     private readonly MMDeviceEnumerator enumerator = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 50 };
     private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 33 };
+    private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
     private readonly object recordLock = new();
     private readonly LocalDSP[] localDSP = Enumerable.Range(0,24).Select(_ => new LocalDSP()).ToArray();
@@ -67,8 +68,9 @@ internal sealed class MixerWindow : Form
         Icon = new Icon(Path.Combine(AppContext.BaseDirectory, "Resources", "GoLive.ico"));
         Controls.Add(web);
         Shown += async (_, _) => await InitializeMixerAsync();
-        FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); };
+        FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); deviceTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); };
         stateTimer.Tick += async (_, _) => await PublishMixerStateAsync();
+        deviceTimer.Tick += async (_, _) => await PublishAudioDevicesAsync();
         meterTimer.Tick += async (_, _) => await PublishMetersAsync();
         obs.StatusChanged += (text, connected) => { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = SetObsStatusAsync(text, connected)); };
         obs.InputsReceived += names => { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishObsInputsAsync(names)); };
@@ -98,7 +100,7 @@ internal sealed class MixerWindow : Form
         web.Source = new Uri(page);
         StartRemoteServer();
         if (selectedDevice is not null) StartCapture(selectedDevice);
-        stateTimer.Start(); meterTimer.Start();
+        stateTimer.Start(); meterTimer.Start(); deviceTimer.Start();
     }
 
     private List<MMDevice> GetInputs() => enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
