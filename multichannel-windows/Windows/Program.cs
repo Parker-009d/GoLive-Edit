@@ -393,7 +393,7 @@ internal sealed class MixerWindow : Form
             }
             previousLeft = Read24(input, (inputFrames - 1) * 6) / 8388608f;
             previousRight = Read24(input, (inputFrames - 1) * 6 + 3) / 8388608f;
-            position -= inputFrames;
+            position -= inputFrames - 1;
             Array.Resize(ref output, written);
             return output;
         }
