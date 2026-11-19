@@ -306,6 +306,7 @@ internal sealed class MixerWindow : Form
         var start = source.IndexOf("IN ", StringComparison.OrdinalIgnoreCase);
         var skip = 3;
         if (start < 0) { start = source.IndexOf("Input ", StringComparison.OrdinalIgnoreCase); skip = 6; }
+        if (start < 0) { start = source.IndexOf("Line ", StringComparison.OrdinalIgnoreCase); skip = 5; }
         if (start < 0) return fallback;
         var digits = new string(source.Skip(start + skip).TakeWhile(char.IsDigit).ToArray());
         return int.TryParse(digits, out var oneBased) && oneBased > 0 ? oneBased - 1 : fallback;
