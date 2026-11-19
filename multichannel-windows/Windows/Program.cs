@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using NAudio.CoreAudioApi;
@@ -30,6 +31,10 @@ internal sealed class MixerWindow : Form
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
     private readonly object recordLock = new();
+    private Channel<CapturePacket>? captureQueue;
+    private CancellationTokenSource? captureWorkerCancellation;
+    private Task? captureWorker;
+    private sealed record CapturePacket(byte[] Buffer, int Length, WaveFormat Format);
     private readonly LocalDSP[] localDSP = Enumerable.Range(0,24).Select(_ => new LocalDSP()).ToArray();
     private readonly LocalFX localFX = new();
     private MMDevice? selectedDevice;
@@ -188,10 +193,30 @@ internal sealed class MixerWindow : Form
         try
         {
             captureHasData = false; captureHasSignal = false; captureError = "";
+            captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
+            captureWorkerCancellation = new CancellationTokenSource();
+            var queue = captureQueue;
+            var cancellation = captureWorkerCancellation;
+            captureWorker = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var packet in queue.Reader.ReadAllAsync(cancellation.Token))
+                        CaptureAudio(packet.Buffer, packet.Length, packet.Format);
+                }
+                catch (OperationCanceledException) { }
+            });
             capture = new WasapiCapture(device, false, 200);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
-            activeCapture.DataAvailable += (_, e) => CaptureAudio(e.Buffer, e.BytesRecorded, activeCapture.WaveFormat);
+            activeCapture.DataAvailable += (_, e) =>
+            {
+                var length = e.BytesRecorded;
+                if (length <= 0) return;
+                var copy = new byte[length];
+                Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
+                queue.Writer.TryWrite(new CapturePacket(copy, length, activeCapture.WaveFormat));
+            };
             activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
             capture.StartRecording();
             if (selectedOutput is not null) StartMonitorOutput();
@@ -218,6 +243,15 @@ internal sealed class MixerWindow : Form
     {
         try { capture?.StopRecording(); } catch { }
         capture?.Dispose(); capture = null;
+        var queue = captureQueue; captureQueue = null; queue?.Writer.TryComplete();
+        var worker = captureWorker; captureWorker = null;
+        var cancellation = captureWorkerCancellation; captureWorkerCancellation = null;
+        if (cancellation is not null)
+        {
+            cancellation.Cancel();
+            if (worker is not null) _ = worker.ContinueWith(_ => cancellation.Dispose(), TaskScheduler.Default);
+            else cancellation.Dispose();
+        }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
         lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
