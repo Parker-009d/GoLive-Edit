@@ -90,7 +90,7 @@ internal sealed class MixerWindow : Form
             obsSources = Enumerable.Range(0,24).Select(i => Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "ObsSource" + (i + 1), "") as string ?? "").ToArray(),
             audioInputs = inputs.Select(x => x.FriendlyName).ToArray(), audioInputIndex = selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice),
             audioChannelCount = selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels,
-            audioOutputs = GetOutputs().Select(x => x.FriendlyName).ToArray(), audioOutputIndex = GetOutputs().FindIndex(x => x.ID == (Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\\Software\\GoLiveEdit", "AudioOutputUid", "") as string ?? ""))
+            audioOutputs = GetOutputs().Select(x => x.FriendlyName).ToArray(), audioOutputIndex = GetOutputs().FindIndex(x => x.ID == (Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", "") as string ?? ""))
         };
         var configJson = JsonSerializer.Serialize(config);
         var bridge = $"window.__GO_LIVE_CONFIG__={configJson};window.webkit={{messageHandlers:new Proxy({{}},{{get:(_,name)=>({{postMessage:body=>window.chrome.webview.postMessage({{handler:String(name),body}})}})}})}};";
@@ -140,7 +140,7 @@ internal sealed class MixerWindow : Form
                     var outputIndex = body.GetInt32();
                     var outputs = GetOutputs();
                     selectedOutput = outputIndex >= 0 && outputIndex < outputs.Count ? outputs[outputIndex] : null;
-                    Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\\Software\\GoLiveEdit", "AudioOutputUid", selectedOutput?.ID ?? "");
+                    Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", selectedOutput?.ID ?? "");
                     StartMonitorOutput();
                     await PublishAudioDevicesAsync();
                     break;
@@ -227,7 +227,7 @@ internal sealed class MixerWindow : Form
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
         var channels = selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : $"{channels} input channels Â· ready" });
+        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : captureHasData ? $"Live input · {channels} hardware channels" : "Waiting for audio data" });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
 
