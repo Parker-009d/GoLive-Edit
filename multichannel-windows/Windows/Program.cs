@@ -237,7 +237,8 @@ internal sealed class MixerWindow : Form
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
         {
             var offset = frame * format.BlockAlign + c * (format.BitsPerSample / 8);
-            float v = format.Encoding == WaveFormatEncoding.IeeeFloat && format.BitsPerSample == 32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
+            var isFloat32 = format.BitsPerSample == 32 && (format.Encoding == WaveFormatEncoding.IeeeFloat || (format is WaveFormatExtensible extensible && extensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")));
+            float v = isFloat32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
             {
                 16 => BitConverter.ToInt16(bytes, offset) / 32768f,
                 24 => Read24(bytes, offset) / 8388608f,
