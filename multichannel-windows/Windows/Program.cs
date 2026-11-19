@@ -49,6 +49,8 @@ internal sealed class MixerWindow : Form
     private double sampleRate;
     private int channelCount;
     private volatile bool captureHasData;
+    private volatile bool captureHasSignal;
+    private volatile string captureError = "";
     private string selectedUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", "") as string ?? "";
     private readonly ObsSocket obs = new();
     private string pairingCode = NewPairCode();
@@ -184,16 +186,16 @@ internal sealed class MixerWindow : Form
         StopCapture();
         try
         {
-            captureHasData = false;
+            captureHasData = false; captureHasSignal = false; captureError = "";
             capture = new WasapiCapture(device);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
             activeCapture.DataAvailable += (_, e) => CaptureAudio(e.Buffer, e.BytesRecorded, activeCapture.WaveFormat);
-            activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) _ = SetRecordingStatusAsync("Audio capture stopped: " + e.Exception.Message, false, ""); };
+            activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
             capture.StartRecording();
             if (selectedOutput is not null) StartMonitorOutput();
         }
-        catch (Exception ex) { _ = SetRecordingStatusAsync("Audio input error: " + ex.Message, false, ""); }
+        catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
     }
 
     private void StartMonitorOutput()
@@ -227,7 +229,7 @@ internal sealed class MixerWindow : Form
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
         var channels = selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : captureHasData ? $"Live input · {channels} hardware channels" : "Waiting for audio data" });
+        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
 
@@ -251,6 +253,7 @@ internal sealed class MixerWindow : Form
             samples[frame * channels + c] = v;
             if (c < peak.Length) { peak[c] = Math.Max(peak[c], Math.Abs(v)); sum[c] += v * v; }
         }
+        if (peak.Any(x => x > 0.0001)) captureHasSignal = true;
         JsonElement state; lock (audioLock) state = mixerState;
         var ch = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("ch", out var cs) ? cs : default;
         var main = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("main", out var ms) ? ms : default;
