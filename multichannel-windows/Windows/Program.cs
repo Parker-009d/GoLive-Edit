@@ -28,7 +28,7 @@ internal sealed class MixerWindow : Form
     private readonly MMDeviceEnumerator enumerator = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 50 };
     private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 33 };
-    private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
+    private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 100 };
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
     private readonly object recordLock = new();
@@ -38,6 +38,8 @@ internal sealed class MixerWindow : Form
     private sealed record CapturePacket(byte[] Buffer, int Length, WaveFormat Format);
     private readonly LocalDSP[] localDSP = Enumerable.Range(0,24).Select(_ => new LocalDSP()).ToArray();
     private readonly LocalFX localFX = new();
+    private readonly double[] smoothedLeftGain = new double[24];
+    private readonly double[] smoothedRightGain = new double[24];
     private MMDevice? selectedDevice;
     private MMDevice? selectedOutput;
     private WasapiOut? monitorOut;
@@ -350,17 +352,22 @@ internal sealed class MixerWindow : Form
             rightGain[i] = (float)(gain * Math.Sqrt((1+pan)*.5));
         }
         var output = new byte[frames * 6]; var pos = 0;
+        var gainSmoothing = 1 - Math.Exp(-1 / (0.005 * format.SampleRate));
         for (var frame = 0; frame < frames; frame++)
         {
             double left = 0, right = 0;
             for (var i = 0; i < 24; i++)
             {
+                var targetLeft = active[i] ? leftGain[i] : 0;
+                var targetRight = active[i] ? rightGain[i] : 0;
+                smoothedLeftGain[i] += (targetLeft - smoothedLeftGain[i]) * gainSmoothing;
+                smoothedRightGain[i] += (targetRight - smoothedRightGain[i]) * gainSmoothing;
                 if (!active[i]) continue;
                 var input = samples[frame * channels + route[i]];
                 var processed = localDSP[i].Process(input, format.SampleRate);
                 processed = localFX.ProcessChannel(processed, i, false, format.SampleRate);
-                left += processed * leftGain[i];
-                right += processed * rightGain[i];
+                left += processed * smoothedLeftGain[i];
+                right += processed * smoothedRightGain[i];
             }
             WritePcm24(output, ref pos, SoftLimit((float)left));
             WritePcm24(output, ref pos, SoftLimit((float)right));
@@ -507,15 +514,23 @@ internal sealed class MixerWindow : Form
         if (web.CoreWebView2 is null || Interlocked.Exchange(ref spectrumBusy, 1) != 0) return;
         try
         {
-            double sr; int ch; float[][] samples; int filled;
+            double sr; int ch; int route; float[] samples; int filled;
             lock (audioLock)
             {
                 sr = sampleRate; ch = channelCount; filled = spectrumFilled;
                 if (filled < 2048) return;
-                samples = spectrumRing.Select(r => Enumerable.Range(0, 2048).Select(i => r[(spectrumIndex + i) % 2048]).ToArray()).ToArray();
+                var selected = mixerState.ValueKind == JsonValueKind.Object && mixerState.TryGetProperty("sel", out var selectedProp) && selectedProp.TryGetInt32(out var selectedChannel) ? Math.Clamp(selectedChannel, 0, 23) : 0;
+                var channels = mixerState.ValueKind == JsonValueKind.Object && mixerState.TryGetProperty("ch", out var channelArray) ? channelArray : default;
+                var selectedConfig = channels.ValueKind == JsonValueKind.Array && channels.GetArrayLength() > selected ? channels[selected] : default;
+                route = InputIndex(selectedConfig, selected);
+                if (route < 0 || route >= Math.Min(24, ch)) return;
+                samples = new float[2048];
+                for (var i = 0; i < samples.Length; i++) samples[i] = spectrumRing[route][(spectrumIndex + i) % samples.Length];
             }
-            var spectra = await Task.Run(() => CalculateSpectra(samples, filled, sr));
-            var info = new { sampleRate = sr, channels = ch, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
+            var spectrum = await Task.Run(() => CalculateSpectrum(samples, filled, sr));
+            var spectra = Enumerable.Range(0, 24).Select(_ => Enumerable.Repeat(-90d, 48).ToArray()).ToArray();
+            spectra[route] = spectrum;
+            var info = new { sampleRate = sr, channels = ch, spectrumMaxHz = 20000, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
             var payload = JsonSerializer.Serialize(new { spectra, info });
             if (web.CoreWebView2 is not null) await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
         }
@@ -523,17 +538,19 @@ internal sealed class MixerWindow : Form
         finally { Interlocked.Exchange(ref spectrumBusy, 0); }
     }
 
-    private static double[][] CalculateSpectra(float[][] samples, int filled, double rate)
+    private static double[] CalculateSpectrum(float[] samples, int filled, double rate)
     {
-        var result = Enumerable.Range(0, 24).Select(_ => Enumerable.Repeat(-90d, 48).ToArray()).ToArray();
-        if (filled < 2048 || rate <= 0) return result;
-        var maxHz = Math.Min(20000, rate / 2.1);
-        for (var ch = 0; ch < Math.Min(24, samples.Length); ch++) for (var band = 0; band < 48; band++)
+        var result = Enumerable.Repeat(-90d, 48).ToArray();
+        if (filled < 2048 || rate <= 0 || samples.Length < 2048) return result;
+        var maxHz = rate / 2.05;
+        for (var band = 0; band < result.Length; band++)
         {
-            var hz = 20 * Math.Pow(maxHz / 20, band / 47d); var coeff = 2 * Math.Cos(2 * Math.PI * hz / rate); double s1 = 0, s2 = 0;
-            for (var i = 0; i < 2048; i++) { var window = SpectrumWindow[i]; var value = samples[ch][i] * window + coeff * s1 - s2; s2 = s1; s1 = value; }
+            var hz = 20 * Math.Pow(1000, band / 47d);
+            if (hz >= maxHz) continue;
+            var coeff = 2 * Math.Cos(2 * Math.PI * hz / rate); double s1 = 0, s2 = 0;
+            for (var i = 0; i < 2048; i++) { var window = SpectrumWindow[i]; var value = samples[i] * window + coeff * s1 - s2; s2 = s1; s1 = value; }
             var power = Math.Max(0, s1 * s1 + s2 * s2 - coeff * s1 * s2); var magnitude = 4 * Math.Sqrt(power) / 2048;
-            result[ch][band] = Math.Max(-90, 20 * Math.Log10(Math.Max(magnitude, 1e-5)));
+            result[band] = Math.Max(-90, 20 * Math.Log10(Math.Max(magnitude, 1e-5)));
         }
         return result;
     }
