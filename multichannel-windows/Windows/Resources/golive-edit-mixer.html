@@ -965,6 +965,7 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 
 body{margin:0;background:#000;overflow:hidden}
 .m{font-family:"Lucida Grande","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:11px;color:#fff;font-variant-numeric:tabular-nums}
+.m{zoom:.90;width:111.111%!important;min-height:111.111vh!important}
 button,select,input{font-family:inherit}
 .tab{position:relative;display:inline-flex;align-items:center;gap:9px;height:52px;padding:0 18px 0 10px;border:1px solid #5a5a5a;border-radius:6px;background:linear-gradient(#3c3c3c,#222);color:#f2f2f2;font-size:13px;font-weight:700;letter-spacing:.03em;cursor:pointer}
 .tab:hover{background:linear-gradient(#505050,#2c2c2c);border-color:#8a8a8a}
@@ -1282,7 +1283,7 @@ arr(i,key,k,v){this.setState(s=>({ch:s.ch.map((c,n)=>n===i?{...c,[key]:c[key].ma
 band(i,b,p){this.setState(s=>({ch:s.ch.map((c,n)=>n===i?{...c,e:c.e.map((x,j)=>j===b?{...x,...p}:x)}:c)}))}
 applyPre(i,n){const p=P[n];this.setState(s=>({ch:s.ch.map((c,k)=>k===i?{...c,pre:n,gOn:p.gate==null?!!p.on:!!p.gate,eOn:p.eq==null?!!p.on:!!p.eq,cOn:p.comp==null?!!p.on:!!p.comp,g:p.g.slice(),c:p.c.slice(),e:c.e.map((x,j)=>{const o={...x};if(p.f)o.f=p.f[j];if(j>0){o.g=p.e[j-1];if(p.q)o.q=p.q[j-1]}return o})}:c)}))}
 renderVals(){
-const s=this.state,i=s.sel,c=s.ch[i],g=c.g,cp=c.c,mask=v=>Math.round((1-(cl(v,METER_FLOOR_DB,METER_CEILING_DB)-METER_FLOOR_DB)/(METER_CEILING_DB-METER_FLOOR_DB))*METER_HEIGHT),cap=db=>Math.round((6-db)/66*220-14);
+const s=this.state,i=s.sel,c=s.ch[i],g=c.g,cp=c.c,mask=v=>Math.round((1-(cl(v,METER_FLOOR_DB,METER_CEILING_DB)-METER_FLOOR_DB)/(METER_CEILING_DB-METER_FLOOR_DB))*METER_HEIGHT),faderHeight=window.innerHeight<=900?cl(window.innerHeight*.28,140,190):220,faderCapHeight=window.innerHeight<=900?24:28,cap=db=>Math.round((6-cl(db,-60,6))/66*(faderHeight-faderCapHeight));
 const K=(label,text,min,max,step,v,cb,t)=>({label,text,min,max,step,value:v,fill:cl((v-min)/(max-min)*100,0,100),cb:e=>cb(+e.target.value),editable:true,hasTicks:!!t,t0:t?t[0]:'',t1:t?t[1]:'',t2:t?t[2]:'',t3:t?t[3]:'',t4:t?t[4]:'',sz:''});
 const eqControlToGain=v=>Math.sign(v)*18*Math.pow(Math.min(1,Math.abs(v)/18),0.8),eqGainToControl=g=>Math.sign(g)*18*Math.pow(Math.min(1,Math.abs(g)/18),1.25);
 const L=(label,text,fill,t)=>({label,text,fill:cl(fill,0,100),editable:false,hasTicks:true,t0:t[0],t1:t[1],t2:t[2],t3:t[3],t4:t[4],sz:''});
