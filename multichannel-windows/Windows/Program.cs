@@ -750,7 +750,7 @@ internal sealed class ObsSocket
         var eqTypes=new Dictionary<string,int>{{"lc",0},{"lcut",0},{"ls",1},{"pk",2},{"vq",3},{"hs",4},{"hc",5}};
         for(var band=0;band<5;band++)
         {
-            var b=47+band*5;var e=band<eq.Length?eq[band]:default;var kind=Str(e,"t","pk");var freq=Math.Clamp(Num(e,"f",1000),20,20000);var gain=Math.Clamp(Num(e,"gain",0),-18,18);var q=Math.Clamp(Num(e,"q",.71),.3,8);var on=eqOn&&Bool(e,"on");
+            var b=47+band*5;var e=band<eq.Length?eq[band]:default;var kind=Str(e,"t","pk");var freq=Math.Clamp(Num(e,"f",1000),20,20000);var gain=Math.Clamp(Num(e,"g",Num(e,"gain",0)),-18,18);var q=Math.Clamp(Num(e,"q",.71),.3,8);var on=eqOn&&Bool(e,"on");
             values[b]=on?1:0;values[b+1]=(eqTypes.GetValueOrDefault(kind,2))/5f;values[b+2]=(float)(Math.Log(freq/20)/Math.Log(1000));values[b+3]=Norm(gain,-18,18);values[b+4]=Norm(q,.3,8);
         }
         var bytes=new byte[values.Length*sizeof(float)];Buffer.BlockCopy(values,0,bytes,0,bytes.Length);return bytes;
