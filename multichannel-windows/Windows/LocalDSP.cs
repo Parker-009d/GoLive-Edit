@@ -40,7 +40,7 @@ internal sealed class LocalDSP
         gate=Numbers(dsp,"g",gate); comp=Numbers(dsp,"c",comp);
         if (dsp.TryGetProperty("e",out var arr)&&arr.ValueKind==JsonValueKind.Array)
         {
-            bands=arr.EnumerateArray().Select(b=>new Band(Text(b,"t","pk"),Number(b,"f",1000),Number(b,"gain",0),Number(b,"q",.71),Bool(b,"on"))).ToArray();
+            bands=arr.EnumerateArray().Select(b=>new Band(Text(b,"t","pk"),Number(b,"f",1000),Number(b,"g",Number(b,"gain",0)),Number(b,"q",.71),Bool(b,"on"))).ToArray();
             if(filters.Length!=bands.Length) filters=new Biquad[bands.Length]; dirty=true;
         }
     }
