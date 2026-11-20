@@ -1068,6 +1068,23 @@ select.val{height:22px;padding:0 4px}
 }
 @media(max-height:1200px){.main-grid{padding-top:5px;padding-bottom:5px;align-items:start}.main-grid>div:nth-child(2)>div:first-child{min-height:285px!important}.main-grid>div:nth-child(3){max-height:360px;min-height:0!important;overflow:auto}}
 @media(max-height:760px) and (max-width:1580px){.main-grid>div:nth-child(2)>div:first-child{min-height:240px!important}.main-grid>div:nth-child(3){max-height:250px}.mode-panel{max-height:190px}}
+@media(max-height:900px){
+  .mtr,.meter-tile{height:clamp(112px,24vh,180px)}
+  .meter-tile{grid-template-rows:24px clamp(112px,24vh,180px) 24px}
+  .fw,.slot,.sc{height:clamp(140px,28vh,190px)}
+  .cap{height:24px}
+  .mode-panel{max-height:clamp(150px,28vh,220px)}
+}
+@media(max-width:1100px){
+  .main-grid{grid-template-columns:64px minmax(0,1fr) 112px}
+  .bottom-dock{padding-left:4px;padding-right:4px}
+  .lay{flex-basis:60px;width:60px}
+  .stp{flex-basis:76px;width:76px}
+}
+@media(min-width:1581px){
+  .main-grid{grid-template-columns:80px minmax(0,1fr) 130px}
+  .mode-panel{flex-basis:min(520px,38vw);width:min(520px,38vw);max-height:24vh}
+}
 </style>
 </head>
 <body>
