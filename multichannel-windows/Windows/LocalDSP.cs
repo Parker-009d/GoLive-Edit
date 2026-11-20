@@ -30,7 +30,7 @@ internal sealed class LocalDSP
 
     private bool bypass, gateOn, eqOn, compOn, dirty=true;
     private double[] gate=[-40,-47,12,300,300], comp=[-20,3,8,120,1];
-    private Band[] bands=[]; private Biquad[] filters=[]; private string configKey=""; private double filterRate, detector, gateEnvelope, gateGain=1; private int hold;
+    private Band[] bands=[]; private Biquad[] filters=[]; private string configKey=""; private double filterRate, detector, compressorGainDb, gateEnvelope, gateGain=1; private int hold;
 
     public void Configure(JsonElement dsp)
     {
@@ -62,8 +62,21 @@ internal sealed class LocalDSP
         }
         if(!bypass&&compOn&&comp.Length>=5)
         {
-            var coeff=Math.Exp(-1/(Math.Max(.1,Math.Abs(x)>detector ? comp[2] : comp[3])*.001*rate));detector=coeff*detector+(1-coeff)*Math.Abs(x);
-            var db=20*Math.Log10(Math.Max(1e-6,detector));var over=Math.Max(0,db-comp[0]);var reduction=over-over/Math.Max(1,comp[1]);x*=Math.Pow(10,(comp[4]-reduction)/20);
+            // Detect peaks quickly, then smooth the applied gain separately. The slower
+            // gain attack lets the hit's transient through; the release avoids zippering
+            // and audible pumping as the signal falls back below threshold.
+            var peak=Math.Abs(x);
+            var detectorMs=peak>detector?1d:Math.Clamp(comp[3]*.25,10,80);
+            var detectorCoeff=Math.Exp(-1/(detectorMs*.001*rate));
+            detector=detectorCoeff*detector+(1-detectorCoeff)*peak;
+            var db=20*Math.Log10(Math.Max(1e-9,detector));
+            var over=Math.Max(0,db-comp[0]);
+            var reduction=over-over/Math.Max(1,comp[1]);
+            var targetGainDb=comp[4]-reduction;
+            var gainTimeMs=targetGainDb<compressorGainDb?Math.Max(1,comp[2]):Math.Max(1,comp[3]);
+            var gainCoeff=Math.Exp(-1/(gainTimeMs*.001*rate));
+            compressorGainDb=gainCoeff*compressorGainDb+(1-gainCoeff)*targetGainDb;
+            x*=Math.Pow(10,compressorGainDb/20);
         }
         return (float)x;
     }
