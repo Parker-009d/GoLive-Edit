@@ -604,7 +604,7 @@ internal sealed class MixerWindow : Form
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
         var value = name.ToLowerInvariant();
-        return value.Contains("speaker") && !value.Contains("headphone");
+        return value.Contains("speaker");
     }
 
     private static int Read24(byte[] bytes, int offset) { var v = bytes[offset] | bytes[offset+1] << 8 | bytes[offset+2] << 16; if ((v & 0x800000) != 0) v |= unchecked((int)0xff000000); return v; }
