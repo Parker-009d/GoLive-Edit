@@ -62,6 +62,7 @@ internal sealed class MixerWindow : Form
     private volatile bool captureHasData;
     private volatile bool captureHasSignal;
     private volatile string captureError = "";
+    private string monitorNotice = "";
     private string selectedUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", "") as string ?? "";
     private readonly ObsSocket obs = new();
     private string pairingCode = NewPairCode();
@@ -238,8 +239,13 @@ internal sealed class MixerWindow : Form
     private void StartMonitorOutput()
     {
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
-        monitorOut = null; monitorBuffer = null;
+        monitorOut = null; monitorBuffer = null; monitorNotice = "";
         if (selectedOutput is null) return;
+        if (IsBuiltInMic(selectedDevice?.FriendlyName) && IsSpeakerOutput(selectedOutput.FriendlyName))
+        {
+            monitorNotice = "Speaker monitoring disabled to prevent built-in microphone feedback. Select headphones to monitor.";
+            return;
+        }
         try
         {
             monitorSampleRate = selectedOutput.AudioClient.MixFormat.SampleRate;
@@ -276,7 +282,7 @@ internal sealed class MixerWindow : Form
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
         var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
+        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
 
@@ -587,6 +593,20 @@ internal sealed class MixerWindow : Form
     }
     private static string NewPairCode() => new string(Enumerable.Range(0, 8).Select(_ => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Random.Shared.Next(32)]).ToArray());
     private static string LanAddress() => System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName()).AddressList.FirstOrDefault(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(x))?.ToString() ?? "127.0.0.1";
+    private static bool IsBuiltInMic(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var value = name.ToLowerInvariant();
+        return value.Contains("microphone array") || value.Contains("internal microphone") || value.Contains("built-in microphone");
+    }
+
+    private static bool IsSpeakerOutput(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var value = name.ToLowerInvariant();
+        return value.Contains("speaker") && !value.Contains("headphone");
+    }
+
     private static int Read24(byte[] bytes, int offset) { var v = bytes[offset] | bytes[offset+1] << 8 | bytes[offset+2] << 16; if ((v & 0x800000) != 0) v |= unchecked((int)0xff000000); return v; }
 }
 
