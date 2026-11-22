@@ -1,0 +1,1297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GoLive Edit Mixer</title>
+<script>
+window.__GO_LIVE_CONFIG__=window.__GO_LIVE_CONFIG__||{};
+window.addEventListener('error',function(e){try{window.webkit.messageHandlers.goLiveConsole.postMessage(String(e.message)+' '+String(e.filename)+':'+String(e.lineno))}catch(_){}});
+/* QR encoder: Kazuhiko Arase, MIT licence (via qrcode-terminal) */
+(function(){var M={},C={};function R(n){n=n.replace("./","");if(!C[n]){var m={exports:{}};M[n](m,m.exports);C[n]=m.exports}return C[n]}
+M["QR8bitByte"]=function(module,exports){var QRMode = R('./QRMode');
+function QR8bitByte(data) {
+	this.mode = QRMode.MODE_8BIT_BYTE;
+	this.data = data;
+}
+QR8bitByte.prototype = {
+	getLength : function() {
+		return this.data.length;
+	},
+	write : function(buffer) {
+		for (var i = 0; i < this.data.length; i++) {
+			// not JIS ...
+			buffer.put(this.data.charCodeAt(i), 8);
+		}
+	}
+};
+module.exports = QR8bitByte;
+};
+M["QRBitBuffer"]=function(module,exports){function QRBitBuffer() {
+	this.buffer = [];
+	this.length = 0;
+}
+QRBitBuffer.prototype = {
+	get : function(index) {
+		var bufIndex = Math.floor(index / 8);
+		return ( (this.buffer[bufIndex] >>> (7 - index % 8) ) & 1) == 1;
+	},
+	put : function(num, length) {
+		for (var i = 0; i < length; i++) {
+			this.putBit( ( (num >>> (length - i - 1) ) & 1) == 1);
+		}
+	},
+	getLengthInBits : function() {
+		return this.length;
+	},
+	putBit : function(bit) {
+		var bufIndex = Math.floor(this.length / 8);
+		if (this.buffer.length <= bufIndex) {
+			this.buffer.push(0);
+		}
+		if (bit) {
+			this.buffer[bufIndex] |= (0x80 >>> (this.length % 8) );
+		}
+		this.length++;
+	}
+};
+module.exports = QRBitBuffer;
+};
+M["QRErrorCorrectLevel"]=function(module,exports){module.exports = {
+	L : 1,
+	M : 0,
+	Q : 3,
+	H : 2
+};
+};
+M["QRMaskPattern"]=function(module,exports){module.exports = {
+	PATTERN000 : 0,
+	PATTERN001 : 1,
+	PATTERN010 : 2,
+	PATTERN011 : 3,
+	PATTERN100 : 4,
+	PATTERN101 : 5,
+	PATTERN110 : 6,
+	PATTERN111 : 7
+};
+};
+M["QRMath"]=function(module,exports){var QRMath = {
+	glog : function(n) {
+		if (n < 1) {
+			throw new Error("glog(" + n + ")");
+		}
+		return QRMath.LOG_TABLE[n];
+	},
+	gexp : function(n) {
+		while (n < 0) {
+			n += 255;
+		}
+		while (n >= 256) {
+			n -= 255;
+		}
+		return QRMath.EXP_TABLE[n];
+	},
+	EXP_TABLE : new Array(256),
+	LOG_TABLE : new Array(256)
+};
+for (var i = 0; i < 8; i++) {
+	QRMath.EXP_TABLE[i] = 1 << i;
+}
+for (var i = 8; i < 256; i++) {
+	QRMath.EXP_TABLE[i] = QRMath.EXP_TABLE[i - 4]
+		^ QRMath.EXP_TABLE[i - 5]
+		^ QRMath.EXP_TABLE[i - 6]
+		^ QRMath.EXP_TABLE[i - 8];
+}
+for (var i = 0; i < 255; i++) {
+	QRMath.LOG_TABLE[QRMath.EXP_TABLE[i] ] = i;
+}
+module.exports = QRMath;
+};
+M["QRMode"]=function(module,exports){module.exports = {
+    MODE_NUMBER :       1 << 0,
+    MODE_ALPHA_NUM :    1 << 1,
+    MODE_8BIT_BYTE :    1 << 2,
+    MODE_KANJI :        1 << 3
+};
+};
+M["QRPolynomial"]=function(module,exports){var QRMath = R('./QRMath');
+function QRPolynomial(num, shift) {
+	if (num.length === undefined) {
+		throw new Error(num.length + "/" + shift);
+	}
+	var offset = 0;
+	while (offset < num.length && num[offset] === 0) {
+		offset++;
+	}
+	this.num = new Array(num.length - offset + shift);
+	for (var i = 0; i < num.length - offset; i++) {
+		this.num[i] = num[i + offset];
+	}
+}
+QRPolynomial.prototype = {
+	get : function(index) {
+		return this.num[index];
+	},
+	getLength : function() {
+		return this.num.length;
+	},
+	multiply : function(e) {
+		var num = new Array(this.getLength() + e.getLength() - 1);
+		for (var i = 0; i < this.getLength(); i++) {
+			for (var j = 0; j < e.getLength(); j++) {
+				num[i + j] ^= QRMath.gexp(QRMath.glog(this.get(i) ) + QRMath.glog(e.get(j) ) );
+			}
+		}
+		return new QRPolynomial(num, 0);
+	},
+	mod : function(e) {
+		if (this.getLength() - e.getLength() < 0) {
+			return this;
+		}
+		var ratio = QRMath.glog(this.get(0) ) - QRMath.glog(e.get(0) );
+		var num = new Array(this.getLength() );
+		for (var i = 0; i < this.getLength(); i++) {
+			num[i] = this.get(i);
+		}
+		for (var x = 0; x < e.getLength(); x++) {
+			num[x] ^= QRMath.gexp(QRMath.glog(e.get(x) ) + ratio);
+		}
+		// recursive call
+		return new QRPolynomial(num, 0).mod(e);
+	}
+};
+module.exports = QRPolynomial;
+};
+M["QRRSBlock"]=function(module,exports){var QRErrorCorrectLevel = R('./QRErrorCorrectLevel');
+function QRRSBlock(totalCount, dataCount) {
+	this.totalCount = totalCount;
+	this.dataCount  = dataCount;
+}
+QRRSBlock.RS_BLOCK_TABLE = [
+	// L
+	// M
+	// Q
+	// H
+	// 1
+	[1, 26, 19],
+	[1, 26, 16],
+	[1, 26, 13],
+	[1, 26, 9],
+	// 2
+	[1, 44, 34],
+	[1, 44, 28],
+	[1, 44, 22],
+	[1, 44, 16],
+	// 3
+	[1, 70, 55],
+	[1, 70, 44],
+	[2, 35, 17],
+	[2, 35, 13],
+	// 4		
+	[1, 100, 80],
+	[2, 50, 32],
+	[2, 50, 24],
+	[4, 25, 9],
+	// 5
+	[1, 134, 108],
+	[2, 67, 43],
+	[2, 33, 15, 2, 34, 16],
+	[2, 33, 11, 2, 34, 12],
+	// 6
+	[2, 86, 68],
+	[4, 43, 27],
+	[4, 43, 19],
+	[4, 43, 15],
+	// 7		
+	[2, 98, 78],
+	[4, 49, 31],
+	[2, 32, 14, 4, 33, 15],
+	[4, 39, 13, 1, 40, 14],
+	// 8
+	[2, 121, 97],
+	[2, 60, 38, 2, 61, 39],
+	[4, 40, 18, 2, 41, 19],
+	[4, 40, 14, 2, 41, 15],
+	// 9
+	[2, 146, 116],
+	[3, 58, 36, 2, 59, 37],
+	[4, 36, 16, 4, 37, 17],
+	[4, 36, 12, 4, 37, 13],
+	// 10		
+	[2, 86, 68, 2, 87, 69],
+	[4, 69, 43, 1, 70, 44],
+	[6, 43, 19, 2, 44, 20],
+	[6, 43, 15, 2, 44, 16],
+	// 11
+	[4, 101, 81],
+	[1, 80, 50, 4, 81, 51],
+	[4, 50, 22, 4, 51, 23],
+	[3, 36, 12, 8, 37, 13],
+	// 12
+	[2, 116, 92, 2, 117, 93],
+	[6, 58, 36, 2, 59, 37],
+	[4, 46, 20, 6, 47, 21],
+	[7, 42, 14, 4, 43, 15],
+	// 13
+	[4, 133, 107],
+	[8, 59, 37, 1, 60, 38],
+	[8, 44, 20, 4, 45, 21],
+	[12, 33, 11, 4, 34, 12],
+	// 14
+	[3, 145, 115, 1, 146, 116],
+	[4, 64, 40, 5, 65, 41],
+	[11, 36, 16, 5, 37, 17],
+	[11, 36, 12, 5, 37, 13],
+	// 15
+	[5, 109, 87, 1, 110, 88],
+	[5, 65, 41, 5, 66, 42],
+	[5, 54, 24, 7, 55, 25],
+	[11, 36, 12],
+	// 16
+	[5, 122, 98, 1, 123, 99],
+	[7, 73, 45, 3, 74, 46],
+	[15, 43, 19, 2, 44, 20],
+	[3, 45, 15, 13, 46, 16],
+	// 17
+	[1, 135, 107, 5, 136, 108],
+	[10, 74, 46, 1, 75, 47],
+	[1, 50, 22, 15, 51, 23],
+	[2, 42, 14, 17, 43, 15],
+	// 18
+	[5, 150, 120, 1, 151, 121],
+	[9, 69, 43, 4, 70, 44],
+	[17, 50, 22, 1, 51, 23],
+	[2, 42, 14, 19, 43, 15],
+	// 19
+	[3, 141, 113, 4, 142, 114],
+	[3, 70, 44, 11, 71, 45],
+	[17, 47, 21, 4, 48, 22],
+	[9, 39, 13, 16, 40, 14],
+	// 20
+	[3, 135, 107, 5, 136, 108],
+	[3, 67, 41, 13, 68, 42],
+	[15, 54, 24, 5, 55, 25],
+	[15, 43, 15, 10, 44, 16],
+	// 21
+	[4, 144, 116, 4, 145, 117],
+	[17, 68, 42],
+	[17, 50, 22, 6, 51, 23],
+	[19, 46, 16, 6, 47, 17],
+	// 22
+	[2, 139, 111, 7, 140, 112],
+	[17, 74, 46],
+	[7, 54, 24, 16, 55, 25],
+	[34, 37, 13],
+	// 23
+	[4, 151, 121, 5, 152, 122],
+	[4, 75, 47, 14, 76, 48],
+	[11, 54, 24, 14, 55, 25],
+	[16, 45, 15, 14, 46, 16],
+	// 24
+	[6, 147, 117, 4, 148, 118],
+	[6, 73, 45, 14, 74, 46],
+	[11, 54, 24, 16, 55, 25],
+	[30, 46, 16, 2, 47, 17],
+	// 25
+	[8, 132, 106, 4, 133, 107],
+	[8, 75, 47, 13, 76, 48],
+	[7, 54, 24, 22, 55, 25],
+	[22, 45, 15, 13, 46, 16],
+	// 26
+	[10, 142, 114, 2, 143, 115],
+	[19, 74, 46, 4, 75, 47],
+	[28, 50, 22, 6, 51, 23],
+	[33, 46, 16, 4, 47, 17],
+	// 27
+	[8, 152, 122, 4, 153, 123],
+	[22, 73, 45, 3, 74, 46],
+	[8, 53, 23, 26, 54, 24],
+	[12, 45, 15, 28, 46, 16],
+	// 28
+	[3, 147, 117, 10, 148, 118],
+	[3, 73, 45, 23, 74, 46],
+	[4, 54, 24, 31, 55, 25],
+	[11, 45, 15, 31, 46, 16],
+	// 29
+	[7, 146, 116, 7, 147, 117],
+	[21, 73, 45, 7, 74, 46],
+	[1, 53, 23, 37, 54, 24],
+	[19, 45, 15, 26, 46, 16],
+	// 30
+	[5, 145, 115, 10, 146, 116],
+	[19, 75, 47, 10, 76, 48],
+	[15, 54, 24, 25, 55, 25],
+	[23, 45, 15, 25, 46, 16],
+	// 31
+	[13, 145, 115, 3, 146, 116],
+	[2, 74, 46, 29, 75, 47],
+	[42, 54, 24, 1, 55, 25],
+	[23, 45, 15, 28, 46, 16],
+	// 32
+	[17, 145, 115],
+	[10, 74, 46, 23, 75, 47],
+	[10, 54, 24, 35, 55, 25],
+	[19, 45, 15, 35, 46, 16],
+	// 33
+	[17, 145, 115, 1, 146, 116],
+	[14, 74, 46, 21, 75, 47],
+	[29, 54, 24, 19, 55, 25],
+	[11, 45, 15, 46, 46, 16],
+	// 34
+	[13, 145, 115, 6, 146, 116],
+	[14, 74, 46, 23, 75, 47],
+	[44, 54, 24, 7, 55, 25],
+	[59, 46, 16, 1, 47, 17],
+	// 35
+	[12, 151, 121, 7, 152, 122],
+	[12, 75, 47, 26, 76, 48],
+	[39, 54, 24, 14, 55, 25],
+	[22, 45, 15, 41, 46, 16],
+	// 36
+	[6, 151, 121, 14, 152, 122],
+	[6, 75, 47, 34, 76, 48],
+	[46, 54, 24, 10, 55, 25],
+	[2, 45, 15, 64, 46, 16],
+	// 37
+	[17, 152, 122, 4, 153, 123],
+	[29, 74, 46, 14, 75, 47],
+	[49, 54, 24, 10, 55, 25],
+	[24, 45, 15, 46, 46, 16],
+	// 38
+	[4, 152, 122, 18, 153, 123],
+	[13, 74, 46, 32, 75, 47],
+	[48, 54, 24, 14, 55, 25],
+	[42, 45, 15, 32, 46, 16],
+	// 39
+	[20, 147, 117, 4, 148, 118],
+	[40, 75, 47, 7, 76, 48],
+	[43, 54, 24, 22, 55, 25],
+	[10, 45, 15, 67, 46, 16],
+	// 40
+	[19, 148, 118, 6, 149, 119],
+	[18, 75, 47, 31, 76, 48],
+	[34, 54, 24, 34, 55, 25],
+	[20, 45, 15, 61, 46, 16]
+];
+QRRSBlock.getRSBlocks = function(typeNumber, errorCorrectLevel) {
+	var rsBlock = QRRSBlock.getRsBlockTable(typeNumber, errorCorrectLevel);
+	if (rsBlock === undefined) {
+		throw new Error("bad rs block @ typeNumber:" + typeNumber + "/errorCorrectLevel:" + errorCorrectLevel);
+	}
+	var length = rsBlock.length / 3;
+	var list = [];
+	for (var i = 0; i < length; i++) {
+		var count = rsBlock[i * 3 + 0];
+		var totalCount = rsBlock[i * 3 + 1];
+		var dataCount  = rsBlock[i * 3 + 2];
+		for (var j = 0; j < count; j++) {
+			list.push(new QRRSBlock(totalCount, dataCount) );	
+		}
+	}
+	return list;
+};
+QRRSBlock.getRsBlockTable = function(typeNumber, errorCorrectLevel) {
+	switch(errorCorrectLevel) {
+	case QRErrorCorrectLevel.L :
+		return QRRSBlock.RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 0];
+	case QRErrorCorrectLevel.M :
+		return QRRSBlock.RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 1];
+	case QRErrorCorrectLevel.Q :
+		return QRRSBlock.RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 2];
+	case QRErrorCorrectLevel.H :
+		return QRRSBlock.RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 3];
+	default :
+		return undefined;
+	}
+};
+module.exports = QRRSBlock;
+};
+M["QRUtil"]=function(module,exports){var QRMode = R('./QRMode');
+var QRPolynomial = R('./QRPolynomial');
+var QRMath = R('./QRMath');
+var QRMaskPattern = R('./QRMaskPattern');
+var QRUtil = {
+    PATTERN_POSITION_TABLE : [
+        [],
+        [6, 18],
+        [6, 22],
+        [6, 26],
+        [6, 30],
+        [6, 34],
+        [6, 22, 38],
+        [6, 24, 42],
+        [6, 26, 46],
+        [6, 28, 50],
+        [6, 30, 54],        
+        [6, 32, 58],
+        [6, 34, 62],
+        [6, 26, 46, 66],
+        [6, 26, 48, 70],
+        [6, 26, 50, 74],
+        [6, 30, 54, 78],
+        [6, 30, 56, 82],
+        [6, 30, 58, 86],
+        [6, 34, 62, 90],
+        [6, 28, 50, 72, 94],
+        [6, 26, 50, 74, 98],
+        [6, 30, 54, 78, 102],
+        [6, 28, 54, 80, 106],
+        [6, 32, 58, 84, 110],
+        [6, 30, 58, 86, 114],
+        [6, 34, 62, 90, 118],
+        [6, 26, 50, 74, 98, 122],
+        [6, 30, 54, 78, 102, 126],
+        [6, 26, 52, 78, 104, 130],
+        [6, 30, 56, 82, 108, 134],
+        [6, 34, 60, 86, 112, 138],
+        [6, 30, 58, 86, 114, 142],
+        [6, 34, 62, 90, 118, 146],
+        [6, 30, 54, 78, 102, 126, 150],
+        [6, 24, 50, 76, 102, 128, 154],
+        [6, 28, 54, 80, 106, 132, 158],
+        [6, 32, 58, 84, 110, 136, 162],
+        [6, 26, 54, 82, 110, 138, 166],
+        [6, 30, 58, 86, 114, 142, 170]
+    ],
+    G15 : (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0),
+    G18 : (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0),
+    G15_MASK : (1 << 14) | (1 << 12) | (1 << 10)    | (1 << 4) | (1 << 1),
+    getBCHTypeInfo : function(data) {
+        var d = data << 10;
+        while (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G15) >= 0) {
+            d ^= (QRUtil.G15 << (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G15) ) );    
+        }
+        return ( (data << 10) | d) ^ QRUtil.G15_MASK;
+    },
+    getBCHTypeNumber : function(data) {
+        var d = data << 12;
+        while (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G18) >= 0) {
+            d ^= (QRUtil.G18 << (QRUtil.getBCHDigit(d) - QRUtil.getBCHDigit(QRUtil.G18) ) );    
+        }
+        return (data << 12) | d;
+    },
+    getBCHDigit : function(data) {
+        var digit = 0;
+        while (data !== 0) {
+            digit++;
+            data >>>= 1;
+        }
+        return digit;
+    },
+    getPatternPosition : function(typeNumber) {
+        return QRUtil.PATTERN_POSITION_TABLE[typeNumber - 1];
+    },
+    getMask : function(maskPattern, i, j) {
+        switch (maskPattern) {
+        case QRMaskPattern.PATTERN000 : return (i + j) % 2 === 0;
+        case QRMaskPattern.PATTERN001 : return i % 2 === 0;
+        case QRMaskPattern.PATTERN010 : return j % 3 === 0;
+        case QRMaskPattern.PATTERN011 : return (i + j) % 3 === 0;
+        case QRMaskPattern.PATTERN100 : return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 === 0;
+        case QRMaskPattern.PATTERN101 : return (i * j) % 2 + (i * j) % 3 === 0;
+        case QRMaskPattern.PATTERN110 : return ( (i * j) % 2 + (i * j) % 3) % 2 === 0;
+        case QRMaskPattern.PATTERN111 : return ( (i * j) % 3 + (i + j) % 2) % 2 === 0;
+        default :
+            throw new Error("bad maskPattern:" + maskPattern);
+        }
+    },
+    getErrorCorrectPolynomial : function(errorCorrectLength) {
+        var a = new QRPolynomial([1], 0);
+        for (var i = 0; i < errorCorrectLength; i++) {
+            a = a.multiply(new QRPolynomial([1, QRMath.gexp(i)], 0) );
+        }
+        return a;
+    },
+    getLengthInBits : function(mode, type) {
+        if (1 <= type && type < 10) {
+            // 1 - 9
+            switch(mode) {
+            case QRMode.MODE_NUMBER     : return 10;
+            case QRMode.MODE_ALPHA_NUM  : return 9;
+            case QRMode.MODE_8BIT_BYTE  : return 8;
+            case QRMode.MODE_KANJI      : return 8;
+            default :
+                throw new Error("mode:" + mode);
+            }
+        } else if (type < 27) {
+            // 10 - 26
+            switch(mode) {
+            case QRMode.MODE_NUMBER     : return 12;
+            case QRMode.MODE_ALPHA_NUM  : return 11;
+            case QRMode.MODE_8BIT_BYTE  : return 16;
+            case QRMode.MODE_KANJI      : return 10;
+            default :
+                throw new Error("mode:" + mode);
+            }
+        } else if (type < 41) {
+            // 27 - 40
+            switch(mode) {
+            case QRMode.MODE_NUMBER     : return 14;
+            case QRMode.MODE_ALPHA_NUM  : return 13;
+            case QRMode.MODE_8BIT_BYTE  : return 16;
+            case QRMode.MODE_KANJI      : return 12;
+            default :
+                throw new Error("mode:" + mode);
+            }
+        } else {
+            throw new Error("type:" + type);
+        }
+    },
+    getLostPoint : function(qrCode) {
+        var moduleCount = qrCode.getModuleCount();
+        var lostPoint = 0;
+        var row = 0; 
+        var col = 0;
+        // LEVEL1
+        for (row = 0; row < moduleCount; row++) {
+            for (col = 0; col < moduleCount; col++) {
+                var sameCount = 0;
+                var dark = qrCode.isDark(row, col);
+                for (var r = -1; r <= 1; r++) {
+                    if (row + r < 0 || moduleCount <= row + r) {
+                        continue;
+                    }
+                    for (var c = -1; c <= 1; c++) {
+                        if (col + c < 0 || moduleCount <= col + c) {
+                            continue;
+                        }
+                        if (r === 0 && c === 0) {
+                            continue;
+                        }
+                        if (dark === qrCode.isDark(row + r, col + c) ) {
+                            sameCount++;
+                        }
+                    }
+                }
+                if (sameCount > 5) {
+                    lostPoint += (3 + sameCount - 5);
+                }
+            }
+        }
+        // LEVEL2
+        for (row = 0; row < moduleCount - 1; row++) {
+            for (col = 0; col < moduleCount - 1; col++) {
+                var count = 0;
+                if (qrCode.isDark(row,     col    ) ) count++;
+                if (qrCode.isDark(row + 1, col    ) ) count++;
+                if (qrCode.isDark(row,     col + 1) ) count++;
+                if (qrCode.isDark(row + 1, col + 1) ) count++;
+                if (count === 0 || count === 4) {
+                    lostPoint += 3;
+                }
+            }
+        }
+        // LEVEL3
+        for (row = 0; row < moduleCount; row++) {
+            for (col = 0; col < moduleCount - 6; col++) {
+                if (qrCode.isDark(row, col) && 
+                        !qrCode.isDark(row, col + 1) && 
+                         qrCode.isDark(row, col + 2) && 
+                         qrCode.isDark(row, col + 3) && 
+                         qrCode.isDark(row, col + 4) && 
+                        !qrCode.isDark(row, col + 5) && 
+                         qrCode.isDark(row, col + 6) ) {
+                    lostPoint += 40;
+                }
+            }
+        }
+        for (col = 0; col < moduleCount; col++) {
+            for (row = 0; row < moduleCount - 6; row++) {
+                if (qrCode.isDark(row, col) &&
+                        !qrCode.isDark(row + 1, col) &&
+                         qrCode.isDark(row + 2, col) &&
+                         qrCode.isDark(row + 3, col) &&
+                         qrCode.isDark(row + 4, col) &&
+                        !qrCode.isDark(row + 5, col) &&
+                         qrCode.isDark(row + 6, col) ) {
+                    lostPoint += 40;
+                }
+            }
+        }
+        // LEVEL4
+        var darkCount = 0;
+        for (col = 0; col < moduleCount; col++) {
+            for (row = 0; row < moduleCount; row++) {
+                if (qrCode.isDark(row, col) ) {
+                    darkCount++;
+                }
+            }
+        }
+        var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
+        lostPoint += ratio * 10;
+        return lostPoint;       
+    }
+};
+module.exports = QRUtil;
+};
+M["index"]=function(module,exports){
+var QR8bitByte = R('./QR8bitByte');
+var QRUtil = R('./QRUtil');
+var QRPolynomial = R('./QRPolynomial');
+var QRRSBlock = R('./QRRSBlock');
+var QRBitBuffer = R('./QRBitBuffer');
+function QRCode(typeNumber, errorCorrectLevel) {
+	this.typeNumber = typeNumber;
+	this.errorCorrectLevel = errorCorrectLevel;
+	this.modules = null;
+	this.moduleCount = 0;
+	this.dataCache = null;
+	this.dataList = [];
+}
+QRCode.prototype = {
+	addData : function(data) {
+		var newData = new QR8bitByte(data);
+		this.dataList.push(newData);
+		this.dataCache = null;
+	},
+	isDark : function(row, col) {
+		if (row < 0 || this.moduleCount <= row || col < 0 || this.moduleCount <= col) {
+			throw new Error(row + "," + col);
+		}
+		return this.modules[row][col];
+	},
+	getModuleCount : function() {
+		return this.moduleCount;
+	},
+	make : function() {
+		// Calculate automatically typeNumber if provided is < 1
+		if (this.typeNumber < 1 ){
+			var typeNumber = 1;
+			for (typeNumber = 1; typeNumber < 40; typeNumber++) {
+				var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, this.errorCorrectLevel);
+				var buffer = new QRBitBuffer();
+				var totalDataCount = 0;
+				for (var i = 0; i < rsBlocks.length; i++) {
+					totalDataCount += rsBlocks[i].dataCount;
+				}
+				for (var x = 0; x < this.dataList.length; x++) {
+					var data = this.dataList[x];
+					buffer.put(data.mode, 4);
+					buffer.put(data.getLength(), QRUtil.getLengthInBits(data.mode, typeNumber) );
+					data.write(buffer);
+				}
+				if (buffer.getLengthInBits() <= totalDataCount * 8)
+					break;
+			}
+			this.typeNumber = typeNumber;
+		}
+		this.makeImpl(false, this.getBestMaskPattern() );
+	},
+	makeImpl : function(test, maskPattern) {
+		this.moduleCount = this.typeNumber * 4 + 17;
+		this.modules = new Array(this.moduleCount);
+		for (var row = 0; row < this.moduleCount; row++) {
+			this.modules[row] = new Array(this.moduleCount);
+			for (var col = 0; col < this.moduleCount; col++) {
+				this.modules[row][col] = null;//(col + row) % 3;
+			}
+		}
+		this.setupPositionProbePattern(0, 0);
+		this.setupPositionProbePattern(this.moduleCount - 7, 0);
+		this.setupPositionProbePattern(0, this.moduleCount - 7);
+		this.setupPositionAdjustPattern();
+		this.setupTimingPattern();
+		this.setupTypeInfo(test, maskPattern);
+		if (this.typeNumber >= 7) {
+			this.setupTypeNumber(test);
+		}
+		if (this.dataCache === null) {
+			this.dataCache = QRCode.createData(this.typeNumber, this.errorCorrectLevel, this.dataList);
+		}
+		this.mapData(this.dataCache, maskPattern);
+	},
+	setupPositionProbePattern : function(row, col)  {
+		for (var r = -1; r <= 7; r++) {
+			if (row + r <= -1 || this.moduleCount <= row + r) continue;
+			for (var c = -1; c <= 7; c++) {
+				if (col + c <= -1 || this.moduleCount <= col + c) continue;
+				if ( (0 <= r && r <= 6 && (c === 0 || c === 6) ) || 
+                     (0 <= c && c <= 6 && (r === 0 || r === 6) ) || 
+                     (2 <= r && r <= 4 && 2 <= c && c <= 4) ) {
+					this.modules[row + r][col + c] = true;
+				} else {
+					this.modules[row + r][col + c] = false;
+				}
+			}		
+		}		
+	},
+	getBestMaskPattern : function() {
+		var minLostPoint = 0;
+		var pattern = 0;
+		for (var i = 0; i < 8; i++) {
+			this.makeImpl(true, i);
+			var lostPoint = QRUtil.getLostPoint(this);
+			if (i === 0 || minLostPoint >  lostPoint) {
+				minLostPoint = lostPoint;
+				pattern = i;
+			}
+		}
+		return pattern;
+	},
+	createMovieClip : function(target_mc, instance_name, depth) {
+		var qr_mc = target_mc.createEmptyMovieClip(instance_name, depth);
+		var cs = 1;
+		this.make();
+		for (var row = 0; row < this.modules.length; row++) {
+			var y = row * cs;
+			for (var col = 0; col < this.modules[row].length; col++) {
+				var x = col * cs;
+				var dark = this.modules[row][col];
+				if (dark) {
+					qr_mc.beginFill(0, 100);
+					qr_mc.moveTo(x, y);
+					qr_mc.lineTo(x + cs, y);
+					qr_mc.lineTo(x + cs, y + cs);
+					qr_mc.lineTo(x, y + cs);
+					qr_mc.endFill();
+				}
+			}
+		}
+		return qr_mc;
+	},
+	setupTimingPattern : function() {
+		for (var r = 8; r < this.moduleCount - 8; r++) {
+			if (this.modules[r][6] !== null) {
+				continue;
+			}
+			this.modules[r][6] = (r % 2 === 0);
+		}
+		for (var c = 8; c < this.moduleCount - 8; c++) {
+			if (this.modules[6][c] !== null) {
+				continue;
+			}
+			this.modules[6][c] = (c % 2 === 0);
+		}
+	},
+	setupPositionAdjustPattern : function() {
+		var pos = QRUtil.getPatternPosition(this.typeNumber);
+		for (var i = 0; i < pos.length; i++) {
+			for (var j = 0; j < pos.length; j++) {
+				var row = pos[i];
+				var col = pos[j];
+				if (this.modules[row][col] !== null) {
+					continue;
+				}
+				for (var r = -2; r <= 2; r++) {
+					for (var c = -2; c <= 2; c++) {
+						if (Math.abs(r) === 2 || 
+                            Math.abs(c) === 2 ||
+                            (r === 0 && c === 0) ) {
+							this.modules[row + r][col + c] = true;
+						} else {
+							this.modules[row + r][col + c] = false;
+						}
+					}
+				}
+			}
+		}
+	},
+	setupTypeNumber : function(test) {
+		var bits = QRUtil.getBCHTypeNumber(this.typeNumber);
+        var mod;
+		for (var i = 0; i < 18; i++) {
+			mod = (!test && ( (bits >> i) & 1) === 1);
+			this.modules[Math.floor(i / 3)][i % 3 + this.moduleCount - 8 - 3] = mod;
+		}
+		for (var x = 0; x < 18; x++) {
+			mod = (!test && ( (bits >> x) & 1) === 1);
+			this.modules[x % 3 + this.moduleCount - 8 - 3][Math.floor(x / 3)] = mod;
+		}
+	},
+	setupTypeInfo : function(test, maskPattern) {
+		var data = (this.errorCorrectLevel << 3) | maskPattern;
+		var bits = QRUtil.getBCHTypeInfo(data);
+        var mod;
+		// vertical		
+		for (var v = 0; v < 15; v++) {
+			mod = (!test && ( (bits >> v) & 1) === 1);
+			if (v < 6) {
+				this.modules[v][8] = mod;
+			} else if (v < 8) {
+				this.modules[v + 1][8] = mod;
+			} else {
+				this.modules[this.moduleCount - 15 + v][8] = mod;
+			}
+		}
+		// horizontal
+		for (var h = 0; h < 15; h++) {
+			mod = (!test && ( (bits >> h) & 1) === 1);
+			if (h < 8) {
+				this.modules[8][this.moduleCount - h - 1] = mod;
+			} else if (h < 9) {
+				this.modules[8][15 - h - 1 + 1] = mod;
+			} else {
+				this.modules[8][15 - h - 1] = mod;
+			}
+		}
+		// fixed module
+		this.modules[this.moduleCount - 8][8] = (!test);
+	},
+	mapData : function(data, maskPattern) {
+		var inc = -1;
+		var row = this.moduleCount - 1;
+		var bitIndex = 7;
+		var byteIndex = 0;
+		for (var col = this.moduleCount - 1; col > 0; col -= 2) {
+			if (col === 6) col--;
+			while (true) {
+				for (var c = 0; c < 2; c++) {
+					if (this.modules[row][col - c] === null) {
+						var dark = false;
+						if (byteIndex < data.length) {
+							dark = ( ( (data[byteIndex] >>> bitIndex) & 1) === 1);
+						}
+						var mask = QRUtil.getMask(maskPattern, row, col - c);
+						if (mask) {
+							dark = !dark;
+						}
+						this.modules[row][col - c] = dark;
+						bitIndex--;
+						if (bitIndex === -1) {
+							byteIndex++;
+							bitIndex = 7;
+						}
+					}
+				}
+				row += inc;
+				if (row < 0 || this.moduleCount <= row) {
+					row -= inc;
+					inc = -inc;
+					break;
+				}
+			}
+		}
+	}
+};
+QRCode.PAD0 = 0xEC;
+QRCode.PAD1 = 0x11;
+QRCode.createData = function(typeNumber, errorCorrectLevel, dataList) {
+	var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectLevel);
+	var buffer = new QRBitBuffer();
+	for (var i = 0; i < dataList.length; i++) {
+		var data = dataList[i];
+		buffer.put(data.mode, 4);
+		buffer.put(data.getLength(), QRUtil.getLengthInBits(data.mode, typeNumber) );
+		data.write(buffer);
+	}
+	// calc num max data.
+	var totalDataCount = 0;
+	for (var x = 0; x < rsBlocks.length; x++) {
+		totalDataCount += rsBlocks[x].dataCount;
+	}
+	if (buffer.getLengthInBits() > totalDataCount * 8) {
+		throw new Error("code length overflow. (" + 
+            buffer.getLengthInBits() + 
+            ">" +  
+            totalDataCount * 8 + 
+            ")");
+	}
+	// end code
+	if (buffer.getLengthInBits() + 4 <= totalDataCount * 8) {
+		buffer.put(0, 4);
+	}
+	// padding
+	while (buffer.getLengthInBits() % 8 !== 0) {
+		buffer.putBit(false);
+	}
+	// padding
+	while (true) {
+		if (buffer.getLengthInBits() >= totalDataCount * 8) {
+			break;
+		}
+		buffer.put(QRCode.PAD0, 8);
+		if (buffer.getLengthInBits() >= totalDataCount * 8) {
+			break;
+		}
+		buffer.put(QRCode.PAD1, 8);
+	}
+	return QRCode.createBytes(buffer, rsBlocks);
+};
+QRCode.createBytes = function(buffer, rsBlocks) {
+	var offset = 0;
+	var maxDcCount = 0;
+	var maxEcCount = 0;
+	var dcdata = new Array(rsBlocks.length);
+	var ecdata = new Array(rsBlocks.length);
+	for (var r = 0; r < rsBlocks.length; r++) {
+		var dcCount = rsBlocks[r].dataCount;
+		var ecCount = rsBlocks[r].totalCount - dcCount;
+		maxDcCount = Math.max(maxDcCount, dcCount);
+		maxEcCount = Math.max(maxEcCount, ecCount);
+		dcdata[r] = new Array(dcCount);
+		for (var i = 0; i < dcdata[r].length; i++) {
+			dcdata[r][i] = 0xff & buffer.buffer[i + offset];
+		}
+		offset += dcCount;
+		var rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+		var rawPoly = new QRPolynomial(dcdata[r], rsPoly.getLength() - 1);
+		var modPoly = rawPoly.mod(rsPoly);
+		ecdata[r] = new Array(rsPoly.getLength() - 1);
+		for (var x = 0; x < ecdata[r].length; x++) {
+            var modIndex = x + modPoly.getLength() - ecdata[r].length;
+			ecdata[r][x] = (modIndex >= 0)? modPoly.get(modIndex) : 0;
+		}
+	}
+	var totalCodeCount = 0;
+	for (var y = 0; y < rsBlocks.length; y++) {
+		totalCodeCount += rsBlocks[y].totalCount;
+	}
+	var data = new Array(totalCodeCount);
+	var index = 0;
+	for (var z = 0; z < maxDcCount; z++) {
+		for (var s = 0; s < rsBlocks.length; s++) {
+			if (z < dcdata[s].length) {
+				data[index++] = dcdata[s][z];
+			}
+		}
+	}
+	for (var xx = 0; xx < maxEcCount; xx++) {
+		for (var t = 0; t < rsBlocks.length; t++) {
+			if (xx < ecdata[t].length) {
+				data[index++] = ecdata[t][xx];
+			}
+		}
+	}
+	return data;
+};
+module.exports = QRCode;
+};
+window.QRC=R("index");window.QRL=R("QRErrorCorrectLevel")})();
+</script>
+<style>
+:root{color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+
+body{margin:0;background:#000;overflow:hidden}
+.m{font-family:"Lucida Grande","Helvetica Neue",Helvetica,Arial,sans-serif;font-size:11px;color:#fff;font-variant-numeric:tabular-nums}
+button,select,input{font-family:inherit}
+.tab{position:relative;display:inline-flex;align-items:center;gap:9px;height:52px;padding:0 18px 0 10px;border:1px solid #5a5a5a;border-radius:6px;background:linear-gradient(#3c3c3c,#222);color:#f2f2f2;font-size:13px;font-weight:700;letter-spacing:.03em;cursor:pointer}
+.tab:hover{background:linear-gradient(#505050,#2c2c2c);border-color:#8a8a8a}
+.tab.on{background:linear-gradient(#2f6fd6,#1d4fae);border-color:#bcd8ff;box-shadow:0 0 0 1px #7fb0ff,0 0 14px rgba(70,140,255,.65);color:#fff}
+.tab.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-6px;height:3px;border-radius:2px;background:#bcd8ff}
+.bn{height:22px;padding:0 8px;background:linear-gradient(#b9bbbd,#8a8c8f);border:1px solid #000;border-radius:2px;color:#000;font-size:11px;cursor:pointer}
+.bn.sel{background:#2a67c9;border-color:#0b2a5a;color:#fff}
+.bn.so{background:#111;border-color:#8a8a8a;color:#fff}
+.bn.so.act{background:#f2c230;border-color:#ffe28a;color:#000;font-weight:700}
+.bn.mu{background:#2c2c2c;border-color:#8a8a8a;color:#fff}
+.bn.mu.act{background:linear-gradient(#f05252,#c01f1f);border-color:#500;color:#fff;font-weight:700}
+.sec{border:1px solid #d0d0d0;padding:6px 8px;background:#050505}
+.sec>h3{margin:0 0 6px;font-weight:400;font-size:12px;text-align:center}
+.val{display:block;background:#000;border:1px solid #d0d0d0;color:#fff;font-size:11px;text-align:center;padding:3px 4px;min-width:58px;box-sizing:border-box;margin:0}
+select.val{height:22px;padding:0 4px}
+.vs{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px}
+.vs.s .val{min-width:40px;font-size:10px;padding:3px 2px}
+.vs .w{display:flex;gap:3px}
+.sk{display:flex;flex-direction:column;justify-content:space-between;height:150px;font-size:9px;color:#ddd;text-align:right}
+.bw{position:relative;width:20px;height:150px}
+.bw.s,.bw.s .bar{height:90px}
+.bw:focus-within,.fw:focus-within{outline:2px solid #9cc0ff}
+.bar{width:20px;height:150px;background:#000;border:1px solid #d0d0d0;position:relative;box-sizing:border-box}
+.bar i{position:absolute;left:2px;right:2px;bottom:2px;background:#2f86e0}
+.ov{position:absolute;left:0;margin:0;padding:0;transform-origin:0 0;transform:rotate(-90deg);opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none;background:transparent}
+.ov::-webkit-slider-thumb{-webkit-appearance:none;width:0;height:30px}
+.ov::-moz-range-thumb{width:0;height:30px;border:0}
+.ovb{top:150px;width:150px;height:20px}
+.bw.s .ovb{top:90px;width:90px}
+.ovf{top:220px;width:220px;height:34px}
+.gr{display:block;background:#000;border:1px solid #d0d0d0}
+.mtr{width:12px;height:220px;border:1px solid #000;position:relative;overflow:hidden;background:linear-gradient(to top,#2fbf71 0%,#2fbf71 64%,#e8c23a 64%,#e8c23a 82%,#e5484d 82%,#e5484d 100%)}
+.mtr i{position:absolute;left:0;right:0;top:0;background:#0b0c0d}
+.mtr::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(to top,transparent 0 3px,#0b0c0d 3px 4px)}
+.slot{position:absolute;left:14px;top:0;width:6px;height:220px;background:#000;border:1px solid #777;border-radius:3px;box-sizing:border-box}
+.fw{position:relative;width:34px;height:220px}
+.cap{position:absolute;left:0;width:34px;height:28px;border-radius:2px;background:linear-gradient(#9a9a9a,#555 46%,#1c1c1c 54%,#444);border:1px solid #000;box-shadow:0 2px 3px #000;box-sizing:border-box;pointer-events:none}
+.cap::after{content:"";position:absolute;left:0;right:0;top:12px;height:2px;background:#fff}
+.sc{width:20px;height:220px;position:relative}
+.sc span{position:absolute;left:0;transform:translateY(-50%);font-size:10px;color:#ddd}
+.lay{width:74px;flex:none;display:flex;flex-direction:column;gap:4px;padding:4px 6px 4px 0;border-right:1px solid #3a3a3a;box-sizing:border-box}
+.lay .bn{width:100%;height:24px;padding:0 2px;font-size:10px;white-space:nowrap}
+.stp{width:92px;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:4px;border-right:1px solid #3a3a3a;box-sizing:border-box}
+.stp .bn{width:100%}
+.stp.on{background:#0d2548;box-shadow:inset 0 0 0 2px #2f86e0}
+.stp.on .nm{border-color:#fff;box-shadow:0 0 8px rgba(70,140,255,.9)}
+.nmi{width:100%;min-width:0;box-sizing:border-box;padding:0 4px;text-align:center;font-family:inherit;border-radius:0}
+.nmi:focus{outline:2px solid #9cc0ff}
+.pr{display:inline-flex;gap:2px;margin-left:6px;vertical-align:middle}
+.pr span{cursor:pointer;width:15px;height:13px;line-height:11px;text-align:center;font-size:9px;font-weight:700;border:1px solid #444;border-radius:2px;color:#666;background:#111;box-sizing:border-box}
+.pr span.on{color:#000;border-color:#000}
+.pr .pg.on{background:#5ec2ff}.pr .pe.on{background:#ffd24a}.pr .pk.on{background:#5fdc7a}
+.tab.po::before{content:"";position:absolute;top:5px;right:6px;width:7px;height:7px;border-radius:50%;background:#5fdc7a;box-shadow:0 0 6px #5fdc7a}
+.nm{height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:1px solid #000;cursor:pointer}
+.no{text-align:center;font-size:11px;color:#ddd}
+.pc{width:112px;display:flex;flex-direction:column;gap:3px;flex:none}
+.pc .no~.bn{height:17px;font-size:10px;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;border:1px solid #000}
+
+#wrap{position:relative;overflow-x:hidden;overflow-y:auto;background:#000;width:100%;height:100vh}
+#root{position:relative;width:100%;min-width:0;min-height:0}
+.main-grid{display:grid;grid-template-columns:92px minmax(0,1fr) 150px;gap:8px;padding:8px;min-width:0;box-sizing:border-box}
+.bottom-dock{display:flex;gap:0;padding:0 8px 8px;border-top:1px solid #000;background:#0b0b0b;flex:1;min-width:900px;align-items:flex-start;box-sizing:border-box}
+.mode-panel{flex:0 1 610px;width:610px;max-width:calc(100vw - 310px);min-width:340px;align-self:flex-start;box-sizing:border-box;margin:8px 0 0 10px;gap:6px!important;max-height:245px;overflow:auto}
+@media(max-width:1180px){
+  .tab{height:46px;gap:5px;padding:0 9px 0 6px;font-size:11px}
+  .tab svg{width:32px;height:32px}
+  .main-grid{grid-template-columns:78px minmax(0,1fr) 128px;gap:5px;padding:5px}
+  .mode-panel{flex-basis:520px;width:520px;max-width:calc(100vw - 270px);min-width:300px}
+  .lay{zoom:.9}
+  .stp{zoom:.9}
+}
+@media(max-height:760px){
+  .tab{height:42px}
+  .main-grid{gap:4px;padding:4px}
+  .mode-panel{max-height:200px;margin-top:4px}
+  .lay,.stp{zoom:.84}
+}
+</style>
+</head>
+<body>
+
+<div id="wrap"><div id="root"></div></div>
+<script type="text/x-tpl" id="tpl">
+<div class="m" style="width:100%;min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;background:#050506">
+<nav aria-label="Pages" style="display:flex;gap:8px;padding:6px 8px 10px;background:linear-gradient(#4a4a4a,#1f1f1f);border-bottom:2px solid #000;overflow-x:auto"><button class="{{tcls0}}" onClick="{{tgo0}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><linearGradient id="icb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a7078"/><stop offset="1" stop-color="#202327"/></linearGradient><linearGradient id="icc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1f3f5"/><stop offset=".5" stop-color="#8d949b"/><stop offset="1" stop-color="#34383c"/></linearGradient></defs><rect x="9" y="2" width="18" height="32" rx="3" fill="url(#icb)" stroke="#000"/><circle cx="18" cy="9" r="3.7" fill="url(#icc)" stroke="#000" stroke-width=".8"/><path d="M18 9V6.2" stroke="#111" stroke-width="1.3" stroke-linecap="round"/><rect x="17" y="15" width="2" height="16" rx="1" fill="#050505"/><rect x="13.5" y="20" width="9" height="5.5" rx="1" fill="url(#icc)" stroke="#000" stroke-width=".7"/><path d="M13.5 22.8H22.5" stroke="#fff" stroke-width="1"/><rect x="11" y="16" width="1.7" height="1.6" fill="#e5484d"/><rect x="11" y="18.4" width="1.7" height="1.6" fill="#e8c23a"/><rect x="11" y="20.8" width="1.7" height="1.6" fill="#35d07f"/><rect x="11" y="23.2" width="1.7" height="1.6" fill="#35d07f"/><rect x="11" y="25.6" width="1.7" height="1.6" fill="#35d07f"/></svg><span>Channel</span></button><button class="{{tcls1}}" onClick="{{tgo1}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#0c1512" stroke="#7a8188"/><path d="M2 18H34M10 6V30M18 6V30M26 6V30" stroke="#17291f" stroke-width=".7"/><path d="M2 23H34" stroke="#ffb347" stroke-width="1" stroke-dasharray="2 2"/><path d="M3 18L5 17.2L7 18.8L9 18H12L13 9L15 27L17 10L19 26L21 12L23 24L25 18H27L29 17.4L31 18.6L33 18" fill="none" stroke="#5ef2a8" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Gate</span></button><button class="{{tcls2}}" onClick="{{tgo2}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#07090c" stroke="#7a8188"/><path d="M2 18H34M9 6V30M17 6V30M26 6V30" stroke="#1f262d" stroke-width=".7"/><path d="M3 24C8 24 9 14 14 14S20 24 24 22S30 12 33 12" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="8" cy="20" r="2.3" fill="#ff6a6a" stroke="#000" stroke-width=".6"/><circle cx="14" cy="14" r="2.3" fill="#ffd24a" stroke="#000" stroke-width=".6"/><circle cx="23.5" cy="21.8" r="2.3" fill="#5fdc7a" stroke="#000" stroke-width=".6"/><circle cx="30" cy="12.4" r="2.3" fill="#5aa9ff" stroke="#000" stroke-width=".6"/></svg><span>EQ</span></button><button class="{{tcls3}}" onClick="{{tgo3}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="ikn" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="#f6f8fa"/><stop offset=".55" stop-color="#9aa1a8"/><stop offset="1" stop-color="#34393d"/></radialGradient></defs><circle cx="18" cy="19" r="15" fill="#15181b" stroke="#000"/><path d="M7 28L9 26M5.5 19H8M7 10L9 12M12 4.5L13 7M24 4.5L23 7M29 10L27 12M31 19H28.5" stroke="#9cc0ff" stroke-width="1.5" stroke-linecap="round"/><circle cx="18" cy="19" r="8.6" fill="url(#ikn)" stroke="#000" stroke-width=".8"/><path d="M18 19L22.6 12.6" stroke="#111" stroke-width="2.3" stroke-linecap="round"/></svg><span>Comp</span></button><button class="{{tcls4}}" onClick="{{tgo4}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><linearGradient id="isp" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3f4449"/><stop offset=".5" stop-color="#1a1d20"/><stop offset="1" stop-color="#30353a"/></linearGradient><radialGradient id="ico" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#78808a"/><stop offset="1" stop-color="#0d0f10"/></radialGradient></defs><rect x="7" y="2" width="22" height="32" rx="3" fill="url(#isp)" stroke="#000"/><circle cx="18" cy="9" r="3.3" fill="url(#ico)" stroke="#9aa0a6" stroke-width=".7"/><circle cx="18" cy="9" r="1" fill="#cfd5db"/><circle cx="18" cy="23" r="7.7" fill="url(#ico)" stroke="#9aa0a6" stroke-width=".9"/><circle cx="18" cy="23" r="3" fill="#15171a" stroke="#555" stroke-width=".6"/><circle cx="18" cy="23" r="1.2" fill="#b4bac0"/><circle cx="25.6" cy="30.6" r=".9" fill="#ff5d5d"/></svg><span>Main</span></button><button class="{{tcls5}}" onClick="{{tgo5}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="5" y="2" width="26" height="32" rx="3" fill="#0b0c0d" stroke="#7a8188"/><rect x="10" y="5" width="6" height="2.2" fill="#1d2024"/><rect x="10" y="8" width="6" height="2.2" fill="#1d2024"/><rect x="10" y="11" width="6" height="2.2" fill="#e8c23a"/><rect x="10" y="14" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="17" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="20" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="23" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="26" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="29" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="5" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="8" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="11" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="14" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="17" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="20" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="23" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="26" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="29" width="6" height="2.2" fill="#35d07f"/></svg><span>Meter</span></button><button class="{{tclsFx}}" onClick="{{tgoFx}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#07090c" stroke="#7a8188"/><path d="M5 24C8 24 8 12 11 12S14 24 17 24S20 12 23 12S26 24 31 24" fill="none" stroke="#c9a6ff" stroke-width="1.8"/></svg><span>FX</span></button></nav>
+<div class="main-grid">
+<div class="stp"><input class="nm nmi" type="text" maxlength="8" spellcheck="false" title="Click to rename channel" aria-label="Channel name" style="background:{{se.color}};color:{{se.fg}}" value="{{se.name}}" onInput="{{se.rn}}" onChange="{{se.rn}}"><b class="val" style="margin-top:4px">{{se.db}}</b><div style="display:flex;justify-content:center;gap:8px"><div class="mtr"><i style="height:{{se.mask}}px"></i></div><div class="fw"><div class="slot"></div><div class="cap" style="top:{{se.cap}}px"></div><input class="ov ovf" type="range" min="-60" max="6" step="0.5" value="{{se.v}}" aria-label="Selected channel fader" onChange="{{se.onF}}" onInput="{{se.onF}}"></div><div class="sc" aria-hidden="true"><span style="top:0">6</span><span style="top:20px">0</span><span style="top:53px">-10</span><span style="top:87px">-20</span><span style="top:120px">-30</span><span style="top:153px">-40</span><span style="top:216px">âˆž</span></div></div><div class="no">{{se.num}}</div></div>
+<div style="display:flex;gap:8px;min-width:0;min-height:330px">
+<sc-if value="{{isGate}}" hint-placeholder-val="{{true}}"><div class="pc"><button class="{{gateCls}}" style="height:30px" onClick="{{toggleGate}}">Noise Gate</button><span class="no" style="text-align:left;margin-top:8px">Presets</span><sc-for list="{{presets}}" as="p" hint-placeholder-count="5"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div>
+<div class="sec" style="flex:1.1"><h3>Gain</h3><div style="display:flex;gap:14px;justify-content:center"><div style="display:flex;flex-direction:column;gap:8px"><svg class="gr" viewBox="0 0 120 100" width="120" height="100" role="img" aria-label="Gate gain curve"><path d="M0 50H120M0 100V0M30 0V100M60 0V100M90 0V100M0 25H120M0 75H120" stroke="#23282c"/><path d="M5 100L120 0" stroke="#4a525a" stroke-dasharray="3 3" fill="none"/><path d="{{gatePath}}" fill="none" stroke="#fff" stroke-width="2"/></svg><span class="val">Gate Â· 40 dB range</span></div><sc-for list="{{gA}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div>
+<div class="sec" style="flex:1"><h3>Gain Envelope</h3><div style="display:flex;flex-direction:column;align-items:center;gap:8px"><svg class="gr" viewBox="0 0 150 60" width="150" height="60" role="img" aria-label="Gate envelope"><polygon points="{{envPts}}" fill="#3f8fe0"/></svg><div style="display:flex;gap:16px"><sc-for list="{{gB}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div></div></sc-if>
+<sc-if value="{{isComp}}" hint-placeholder-val="{{false}}"><div class="pc"><button class="{{compCls}}" style="height:30px" onClick="{{toggleComp}}">Dynamics</button><span class="no" style="text-align:left;margin-top:8px">Presets</span><sc-for list="{{presets}}" as="p" hint-placeholder-count="5"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div>
+<div class="sec" style="flex:1.1"><h3>Compressor</h3><div style="display:flex;gap:14px;justify-content:center"><div style="display:flex;flex-direction:column;gap:8px"><svg class="gr" viewBox="0 0 120 100" width="120" height="100" role="img" aria-label="Compressor transfer curve"><path d="M0 50H120M0 100V0M30 0V100M60 0V100M90 0V100M0 25H120M0 75H120" stroke="#23282c"/><path d="M5 100L120 0" stroke="#4a525a" stroke-dasharray="3 3" fill="none"/><path d="{{compPath}}" fill="none" stroke="#fff" stroke-width="2"/></svg><span class="val">Output {{se.makeup}} dB</span></div><sc-for list="{{cA}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div>
+<div class="sec" style="flex:1"><h3>Time and Gain</h3><div style="display:flex;gap:16px;justify-content:center"><sc-for list="{{cB}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div></sc-if>
+<sc-if value="{{isEq}}" hint-placeholder-val="{{false}}"><div class="pc"><button class="{{eqCls}}" style="height:28px" onClick="{{toggleEq}}">EQ</button><button class="bn" onClick="{{flatEq}}">Flat</button><button class="{{rtaCls}}" onClick="{{toggleRta}}">RTA</button><span class="no" style="text-align:left;margin-top:6px">Presets</span><sc-for list="{{presets}}" as="p" hint-placeholder-count="5"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0"><div class="sec" style="padding:4px"><div class="no" style="display:flex;justify-content:space-between;padding:0 4px 3px"><span>{{rtaNote}}</span><span>Drag a node: left/right = frequency, up/down = gain Â· Shift+drag = Q</span></div><svg viewBox="0 -12 580 192" width="100%" role="img" aria-label="EQ response across the hearing range, 20 Hz to 20 kHz, drag the numbered nodes to adjust" style="display:block;background:#000;touch-action:none;cursor:pointer" onPointerDown="{{gDown}}" onPointerMove="{{gMove}}" onPointerUp="{{gUp}}" onPointerCancel="{{gUp}}"><path id="rtaSpectrum" d="{{rtaPath}}" fill="#5aa9ff" fill-opacity=".35" stroke="#8fc2ff" stroke-width="1"/><g stroke="#2a2a2a"><path d="M40 30H540M40 60H540M40 120H540M40 150H540"/><path d="M40 10V170M106 10V170M157 10V170M207 10V170M273 10V170M324 10V170M374 10V170M440 10V170M491 10V170M540 10V170"/></g><path d="M40 90H540" stroke="#777"/><g fill="#ddd" font-size="10"><text x="6" y="34">+12</text><text x="20" y="94">0</text><text x="6" y="154">-12</text></g><g fill="#ddd" font-size="10" text-anchor="middle"><text x="40" y="178">20</text><text x="106" y="178">50</text><text x="157" y="178">100</text><text x="207" y="178">200</text><text x="273" y="178">500</text><text x="324" y="178">1k</text><text x="374" y="178">2k</text><text x="440" y="178">5k</text><text x="491" y="178">10k</text><text x="540" y="178">20k</text></g><text x="576" y="178" fill="#ddd" font-size="10" text-anchor="end">Hz</text><g stroke="#000" stroke-width=".5"><rect x="40" y="-12" width="79.5" height="11" fill="#1c2a3a"/><rect x="119.5" y="-12" width="103.3" height="11" fill="#263a52"/><rect x="222.8" y="-12" width="50.5" height="11" fill="#1c2a3a"/><rect x="273.3" y="-12" width="100.7" height="11" fill="#263a52"/><rect x="374" y="-12" width="49.5" height="11" fill="#1c2a3a"/><rect x="423.5" y="-12" width="29.4" height="11" fill="#263a52"/><rect x="452.9" y="-12" width="87.1" height="11" fill="#1c2a3a"/></g><g fill="#cfe3ff" font-size="8" text-anchor="middle"><text x="79.7" y="-4">SUB</text><text x="171" y="-4">BASS</text><text x="248" y="-4">LOW MID</text><text x="323.7" y="-4">MID</text><text x="398.7" y="-4">HI MID</text><text x="438" y="-4">PRES</text><text x="496" y="-4">AIR</text></g><path d="{{eqPath}}" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="{{n0x}}" cy="{{n0y}}" r="9" fill="#d0d6dc" stroke="#fff" stroke-width="{{n0w}}"/><text x="{{n0x}}" y="{{n0ty}}" fill="#000" font-size="11" font-weight="700" text-anchor="middle" font-family="Arial,sans-serif">LC</text><circle cx="{{n1x}}" cy="{{n1y}}" r="9" fill="#ff6a6a" stroke="#fff" stroke-width="{{n1w}}"/><text x="{{n1x}}" y="{{n1ty}}" fill="#000" font-size="11" font-weight="700" text-anchor="middle" font-family="Arial,sans-serif">1</text><circle cx="{{n2x}}" cy="{{n2y}}" r="9" fill="#ffd24a" stroke="#fff" stroke-width="{{n2w}}"/><text x="{{n2x}}" y="{{n2ty}}" fill="#000" font-size="11" font-weight="700" text-anchor="middle" font-family="Arial,sans-serif">2</text><circle cx="{{n3x}}" cy="{{n3y}}" r="9" fill="#5fdc7a" stroke="#fff" stroke-width="{{n3w}}"/><text x="{{n3x}}" y="{{n3ty}}" fill="#000" font-size="11" font-weight="700" text-anchor="middle" font-family="Arial,sans-serif">3</text><circle cx="{{n4x}}" cy="{{n4y}}" r="9" fill="#5aa9ff" stroke="#fff" stroke-width="{{n4w}}"/><text x="{{n4x}}" y="{{n4ty}}" fill="#000" font-size="11" font-weight="700" text-anchor="middle" font-family="Arial,sans-serif">4</text></svg></div><div style="display:flex;gap:6px"><div class="sec" style="flex:1;padding:6px 4px"><h3 style="color:{{bp0.col}}">{{bp0.title}}</h3><button class="{{bp0.onCls}}" style="width:100%;margin-bottom:6px" onClick="{{bp0.toggle}}">{{bp0.onText}}</button><div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{eq0}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div><div class="sec" style="flex:1;padding:6px 4px"><h3 style="color:{{bp1.col}}">{{bp1.title}}</h3><button class="{{bp1.onCls}}" style="width:100%;margin-bottom:6px" onClick="{{bp1.toggle}}">{{bp1.onText}}</button><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:6px"><sc-for list="{{ty1}}" as="p" hint-placeholder-count="6"><button class="{{p.cls}}" style="padding:0 2px;height:20px;font-size:10px" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div><div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{eq1}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div><div class="sec" style="flex:1;padding:6px 4px"><h3 style="color:{{bp2.col}}">{{bp2.title}}</h3><button class="{{bp2.onCls}}" style="width:100%;margin-bottom:6px" onClick="{{bp2.toggle}}">{{bp2.onText}}</button><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:6px"><sc-for list="{{ty2}}" as="p" hint-placeholder-count="6"><button class="{{p.cls}}" style="padding:0 2px;height:20px;font-size:10px" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div><div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{eq2}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div><div class="sec" style="flex:1;padding:6px 4px"><h3 style="color:{{bp3.col}}">{{bp3.title}}</h3><button class="{{bp3.onCls}}" style="width:100%;margin-bottom:6px" onClick="{{bp3.toggle}}">{{bp3.onText}}</button><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:6px"><sc-for list="{{ty3}}" as="p" hint-placeholder-count="6"><button class="{{p.cls}}" style="padding:0 2px;height:20px;font-size:10px" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div><div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{eq3}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div><div class="sec" style="flex:1;padding:6px 4px"><h3 style="color:{{bp4.col}}">{{bp4.title}}</h3><button class="{{bp4.onCls}}" style="width:100%;margin-bottom:6px" onClick="{{bp4.toggle}}">{{bp4.onText}}</button><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:6px"><sc-for list="{{ty4}}" as="p" hint-placeholder-count="6"><button class="{{p.cls}}" style="padding:0 2px;height:20px;font-size:10px" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div><div style="display:flex;gap:6px;justify-content:center"><sc-for list="{{eq4}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div></div></div></sc-if>
+<sc-if value="{{isCh}}" hint-placeholder-val="{{false}}"><div class="pc"><span class="no" style="text-align:left">Presets</span><sc-for list="{{presets}}" as="p" hint-placeholder-count="5"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div>
+<div class="sec" style="flex:1"><h3>Channel Â· CH {{se.num}}</h3><div style="display:flex;gap:18px;align-items:flex-start;justify-content:center"><div style="display:flex;flex-direction:column;gap:6px;width:190px"><span class="no" style="text-align:left">Channel name</span><input class="val" type="text" maxlength="8" spellcheck="false" placeholder="Type a name" aria-label="Rename channel" style="height:22px;text-align:left;padding:0 6px" value="{{se.name}}" onInput="{{se.rn}}" onChange="{{se.rn}}"><span class="no" style="text-align:left">Input source</span><select class="val" aria-label="Channel input" value="{{se.inp}}" onChange="{{setInp}}"><option>Interface Â· IN 1</option><option>Interface Â· IN 2</option><option>Interface Â· IN 3</option><option>Interface Â· IN 4</option></select><span class="no" style="text-align:left">OBS assigned source</span><select id="obsAssignment" class="val" aria-label="OBS source assigned to this channel" value="{{se.obsSource}}" onChange="{{assignSelectedOBS}}"><option value="">Connect OBS first</option></select><span class="no" style="text-align:left;margin-top:6px">Processing</span><button class="{{gateCls}}" onClick="{{toggleGate}}">Gate</button><button class="{{eqCls}}" onClick="{{toggleEq}}">EQ</button><button class="{{compCls}}" onClick="{{toggleComp}}">Dynamics</button></div><sc-for list="{{trC}}" as="c" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{c.text}}</b><div class="w"><sc-if value="{{c.hasTicks}}" hint-placeholder-val="{{false}}"><div class="sk" aria-hidden="true"><span>{{c.t0}}</span><span>{{c.t1}}</span><span>{{c.t2}}</span><span>{{c.t3}}</span><span>{{c.t4}}</span></div></sc-if><div class="bw {{c.sz}}"><div class="bar"><i style="height:{{c.fill}}%"></i></div><sc-if value="{{c.editable}}" hint-placeholder-val="{{true}}"><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></sc-if></div></div><span>{{c.label}}</span></div></sc-for></div></div></sc-if>
+<sc-if value="{{isMain}}" hint-placeholder-val="{{false}}"><div class="sec" style="flex:1"><h3>Main LR</h3><div style="display:flex;flex-direction:column;gap:8px;max-width:260px;margin:0 auto"><b class="val">Main level {{mainDb}}</b><button class="{{panicCls}}" style="background:#a51d25;color:white" onClick="{{panicMute}}">PANIC Â· MUTE ALL</button><button class="{{mainMuCls}}" onClick="{{mainMute}}">{{mainMuteText}}</button><button class="bn" onClick="{{clearSolo}}">Clear Solo</button><button class="{{bypCls}}" onClick="{{toggleByp}}">DSP Bypass</button></div></div></sc-if>
+<sc-if value="{{isMeter}}" hint-placeholder-val="{{false}}"><div class="sec" style="flex:1"><h3>Meters</h3><div style="display:flex;gap:40px;justify-content:center"><sc-for list="{{mm}}" as="x" hint-placeholder-count="3"><div class="vs {{c.sz}}"><b class="val">{{x.text}}</b><div class="mtr"><i style="height:{{x.mask}}px"></i></div><span>{{x.label}}</span></div></sc-for></div></div></sc-if>
+<sc-if value="{{isFx}}" hint-placeholder-val="{{false}}"><div class="pc"><button class="{{fxOnCls}}" style="height:30px" onClick="{{fxOn}}">FX On</button><span class="no" style="text-align:left;margin-top:8px">Slot</span><sc-for list="{{fxSl}}" as="p" hint-placeholder-count="4"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for><span class="no" style="text-align:left;margin-top:8px">Effect type</span><sc-for list="{{fxTy}}" as="p" hint-placeholder-count="6"><button class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}}</button></sc-for></div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0"><div class="sec"><h3>{{fxName}}</h3><div style="display:flex;gap:12px;justify-content:center"><sc-for list="{{fxP}}" as="c" hint-placeholder-count="6"><div class="vs"><b class="val">{{c.text}}</b><div class="w"><div class="bw"><div class="bar"><i style="height:{{c.fill}}%"></i></div><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></div></div><span>{{c.label}}</span></div></sc-for></div></div><div class="sec"><h3>FX Returns</h3><div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap"><sc-for list="{{fxBank}}" as="c" hint-placeholder-count="4"><div class="vs"><b class="val">{{c.text}}</b><div class="w"><div class="bw"><div class="bar"><i style="height:{{c.fill}}%"></i></div><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></div></div><button class="{{c.selCls}}" style="width:58px" onClick="{{c.pick}}">{{c.nm}}</button><button class="{{c.onCls}}" style="width:58px" onClick="{{c.tog}}">{{c.onTxt}}</button></div></sc-for></div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><div class="sec" style="flex:1;min-width:230px"><h3>Sends from {{nameA}}</h3><div style="display:flex;gap:8px;justify-content:center"><sc-for list="{{sendA}}" as="c" hint-placeholder-count="4"><div class="vs s" style="{{c.dim}}"><b class="val">{{c.text}}</b><div class="w"><div class="bw s"><div class="bar"><i style="height:{{c.fill}}%"></i></div><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></div></div><button class="{{c.btnCls}}" style="width:50px" title="{{c.tip}}" onClick="{{c.tog}}">{{c.lab}}</button></div></sc-for></div></div><div class="sec" style="flex:1;min-width:230px"><h3>Sends from {{nameB}}</h3><div style="display:flex;gap:8px;justify-content:center"><sc-for list="{{sendB}}" as="c" hint-placeholder-count="4"><div class="vs s" style="{{c.dim}}"><b class="val">{{c.text}}</b><div class="w"><div class="bw s"><div class="bar"><i style="height:{{c.fill}}%"></i></div><input class="ov ovb" type="range" min="{{c.min}}" max="{{c.max}}" step="{{c.step}}" value="{{c.value}}" aria-label="{{c.label}}" onChange="{{c.cb}}" onInput="{{c.cb}}"></div></div><button class="{{c.btnCls}}" style="width:50px" title="{{c.tip}}" onClick="{{c.tog}}">{{c.lab}}</button></div></sc-for></div></div></div></div></sc-if>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px"><button class="bn" onClick="{{save}}">Save</button><button class="{{loadCls}}" onClick="{{load}}">Load</button></div>
+<div class="sec"><h3>Mode</h3><button class="{{localCls}}" style="width:100%;margin-bottom:4px" onClick="{{goLocal}}">Local Live</button><button class="{{obsCls}}" style="width:100%" onClick="{{goObs}}">OBS Control</button></div>
+<div class="sec"><h3>Phone Remote</h3><button class="{{remoteCls}}" style="width:100%;margin-bottom:5px" onClick="{{toggleRemote}}">{{remoteText}}</button><div style="background:#fff;padding:5px;margin-bottom:5px;line-height:0;opacity:{{remoteOpacity}}"><img src="{{qr}}" alt="QR code to open the phone remote" style="width:100%;display:block;image-rendering:pixelated"></div><span class="no" style="display:block;text-align:left">Scan, or open on the phone:</span><b class="val" style="width:100%;font-size:10px;word-break:break-all;margin-bottom:4px;opacity:{{remoteOpacity}}">{{remUrl}}</b><span class="no" style="display:block;text-align:left">PC address (LAN)</span><b class="val" style="width:100%;margin-bottom:4px">{{remIp}}</b><span class="no" style="display:block;text-align:left">Pairing code</span><b class="val" style="width:100%;opacity:{{remoteOpacity}}">{{code}}</b><span class="no" style="display:block;margin:3px 0;color:{{codeCol}}">{{codeLeft}}</span><button class="bn" style="width:100%" onClick="{{newCode}}">New code</button><span class="no" style="display:block;margin-top:4px;text-align:left;color:#9a9a9a;font-size:9px">Preview status only. Live phone control requires the macOS app's LAN remote server.</span></div>
+<button class="{{bypCls}}" style="height:30px" onClick="{{toggleByp}}">DSP Bypass</button><button class="bn" onClick="{{reset}}">Reset</button></div>
+</div>
+<div class="bottom-dock">
+<div class="lay" role="group" aria-label="Fader layer"><span class="no">Faders</span><sc-for list="{{layBtns}}" as="b" hint-placeholder-count="6"><button class="{{b.cls}}" onClick="{{b.go}}">{{b.label}}</button></sc-for></div><sc-for list="{{strips}}" as="s" hint-placeholder-count="3"><div class="{{s.stc}}"><button class="nm" style="background:{{s.color}};color:{{s.fg}}" onClick="{{s.pick}}">{{s.name}}</button><sc-if value="{{s.hasSolo}}" hint-placeholder-val="{{true}}"><button class="{{s.soloCls}}" onClick="{{s.onSolo}}">Solo</button></sc-if><input class="val" type="number" min="-60" max="6" step="0.1" value="{{s.rawDb}}" aria-label="{{s.name}} level in decibels" title="Type a dB value from -60 to +6" onChange="{{s.onDb}}" style="width:100%"><div style="display:flex;justify-content:center;gap:5px"><div class="mtr"><i style="height:{{s.mask}}px"></i></div><sc-if value="{{s.twin}}" hint-placeholder-val="{{false}}"><div class="mtr"><i style="height:{{s.mask2}}px"></i></div></sc-if><div class="fw"><div class="slot"></div><div class="cap" style="top:{{s.cap}}px"></div><input class="ov ovf" type="range" min="-60" max="6" step="0.5" value="{{s.v}}" aria-label="{{s.label}}" onChange="{{s.onF}}" onInput="{{s.onF}}"></div><div class="sc" aria-hidden="true"><span style="top:0">6</span><span style="top:20px">0</span><span style="top:53px">-10</span><span style="top:87px">-20</span><span style="top:120px">-30</span><span style="top:153px">-40</span><span style="top:216px">âˆž</span></div></div><button class="{{s.muteCls}}" onClick="{{s.onMute}}">{{s.muteTxt}}</button><div class="no">{{s.num}}<sc-if value="{{s.hasSolo}}" hint-placeholder-val="{{true}}"><span class="pr"><span class="pg {{s.gc}}" role="button" title="Gate on/off" aria-label="Gate on/off" onClick="{{s.tg}}">G</span><span class="pe {{s.ec}}" role="button" title="EQ on/off" aria-label="EQ on/off" onClick="{{s.te}}">E</span><span class="pk {{s.cc}}" role="button" title="Compressor on/off" aria-label="Compressor on/off" onClick="{{s.tc}}">C</span></span></sc-if></div></div></sc-for>
+<div class="sec mode-panel"><h3>{{panelTitle}}</h3>
+<sc-if value="{{isLocal}}" hint-placeholder-val="{{true}}"><div style="display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center"><span>Input device</span><select id="inputDevice" class="val" aria-label="Input device" value="{{audioDeviceIndex}}" onChange="{{setIn2}}"><sc-for list="{{audioChoices}}" as="a" hint-placeholder-count="2"><option value="{{a.value}}">{{a.name}}</option></sc-for></select><span>Interface status</span><b class="val" style="text-align:left">{{audioInfoText}}</b><span>Recording format</span><b class="val" style="text-align:left">WAV Â· 24-bit PCM Â· input sample rate Â· IN 1 left / IN 2 right</b><span>Destination</span><span class="val" style="text-align:left">Choose a file location when recording starts</span></div><span class="no" style="text-align:left;color:#aaa">{{recStatus}}</span><span class="no" style="text-align:left;color:#ff6b6b">{{clipText}}</span><div style="display:flex;gap:6px;align-items:center"><button class="{{recCls}}" style="height:30px" onClick="{{toggleRec}}">{{recText}}</button><span class="val" style="margin-left:auto">{{recTime}}</span></div></sc-if>
+<sc-if value="{{isObs}}" hint-placeholder-val="{{false}}"><div style="display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center"><span>Host</span><input class="val" id="obsHost" type="text" value="{{obsHost}}" aria-label="OBS host" onInput="{{setHost}}"><span>Port</span><input class="val" id="obsPort" type="text" inputmode="numeric" value="{{obsPort}}" aria-label="OBS port" onInput="{{setPort}}"><span>Password</span><input class="val" id="obsPw" type="password" value="{{obsPw}}" aria-label="OBS WebSocket password" onInput="{{setPw}}" onKeyDown="{{connectObsOnEnter}}"></div><span class="val">ws://{{obsHost}}:{{obsPort}} Â· {{obsText}}</span><span class="no" style="text-align:left;color:#9a9a9a">{{obsRouteText}}</span><div style="display:flex;gap:6px"><button class="{{connCls}}" style="height:30px" onClick="{{toggleConn}}">{{connText}}</button><button class="{{liveCls}}" style="height:30px" onClick="{{toggleLive}}">{{liveText}}</button><button class="{{recCls}}" style="height:30px" onClick="{{toggleRec}}">{{obsRecText}}</button></div></sc-if>
+</div></div></div>
+</script>
+<script>(function(){
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+class DCLogic{constructor(p){this.props=p||{};this.state={}}
+setState(u){const n=typeof u==='function'?u(this.state):u;this.state=Object.assign({},this.state,n);if(this.__r)this.__r()}
+forceUpdate(){if(this.__r)this.__r()}}
+window.DCLogic=DCLogic;
+const EV={onClick:'click',onChange:'change',onInput:'input',onKeyDown:'keydown',onPointerDown:'pointerdown',onPointerMove:'pointermove',onPointerUp:'pointerup',onPointerCancel:'pointercancel'};
+function look(sc,p){p=p.trim();if(p==='true')return true;if(p==='false')return false;if(p==='null')return null;if(/^-?\d+(\.\d+)?$/.test(p))return +p;let v=sc;for(const k of p.split('.')){if(v==null)return undefined;v=v[k]}return v}
+function parse(t){const re=/<(\/?)sc-(if|for)\b([^>]*)>/g,root={c:[]},st=[root];let last=0,m;
+while((m=re.exec(t))){if(m.index>last)st[st.length-1].c.push(t.slice(last,m.index));last=re.lastIndex;
+if(m[1])st.pop();else{const n={k:m[2],a:m[3],c:[]};st[st.length-1].c.push(n);st.push(n)}}
+st[st.length-1].c.push(t.slice(last));return root}
+function hole(a,name,sc){const m=new RegExp('(?:^|\\s)'+name+'="\\{\\{([^}]*)\\}\\}"').exec(a);return m?look(sc,m[1]):undefined}
+function txt(t,sc,hs){
+t=t.replace(/([\w:-]+)="([^"]*\{\{[^"]*)"/g,(all,name,val)=>{
+const w=/^\s*\{\{([^}]*)\}\}\s*$/.exec(val);let v;
+if(w){v=look(sc,w[1]);
+if(EV[name]){if(typeof v!=='function')return '';hs.push(v);return 'data-h-'+EV[name]+'="'+(hs.length-1)+'"'}
+if(v===false||v==null)return '';if(v===true)return name+'=""'}
+else v=val.replace(/\{\{([^}]*)\}\}/g,(a,p)=>{const x=look(sc,p);return x==null?'':x});
+return name+'="'+esc(v)+'"'});
+return t.replace(/\{\{([^}]*)\}\}/g,(a,p)=>{const v=look(sc,p);return v==null?'':esc(v)})}
+function run(n,sc,hs){let o='';for(const c of n.c){
+if(typeof c==='string')o+=txt(c,sc,hs);
+else if(c.k==='if'){if(hole(c.a,'value',sc))o+=run(c,sc,hs)}
+else{const l=hole(c.a,'list',sc)||[],as=(/(?:^|\s)as="([^"]*)"/.exec(c.a)||[])[1];
+l.forEach((it,i)=>{const s2=Object.create(sc);s2[as]=it;s2.$index=i;o+=run(c,s2,hs)})}}
+return o}
+function sync(o,n){for(const a of [...o.attributes])if(!n.hasAttribute(a.name))o.removeAttribute(a.name);
+for(const a of n.attributes)if(o.getAttribute(a.name)!==a.value)o.setAttribute(a.name,a.value)}
+function morph(a,b){const bc=[...b.childNodes],ac=[...a.childNodes];
+bc.forEach((n,i)=>{const o=ac[i];if(!o){a.appendChild(n);return}
+if(o.nodeType!==n.nodeType||o.nodeName!==n.nodeName){a.replaceChild(n,o);return}
+if(n.nodeType!==1){if(o.nodeValue!==n.nodeValue)o.nodeValue=n.nodeValue;return}
+sync(o,n);morph(o,n)});
+for(let i=bc.length;i<ac.length;i++)a.removeChild(ac[i])}
+window.dcMount=function(root,tpl,C){
+const inst=new C({}),tree=parse(tpl);let hs=[];
+inst.__r=()=>{hs=[];const sc=Object.assign(Object.create(null),inst.renderVals());
+const tmp=document.createElement('div');tmp.innerHTML=run(tree,sc,hs);morph(root,tmp);
+root.querySelectorAll('select[value],input[value]').forEach(e=>{const v=e.getAttribute('value');if(e.value!==v)e.value=v});if(window.__goLiveRefreshOBSSelect)window.__goLiveRefreshOBSSelect()};
+const fire=e=>{const keys=e.type==='input'?['input','change']:[e.type];let el=e.target;
+while(el&&el!==root.parentNode){for(const k of keys){const id=el.getAttribute&&el.getAttribute('data-h-'+k);
+if(id!=null&&hs[id]){Object.defineProperty(e,'currentTarget',{value:el,configurable:true});hs[id](e)}}el=el.parentNode}};
+['click','input','change','keydown','pointerdown','pointermove','pointerup','pointercancel'].forEach(t=>root.addEventListener(t,fire));
+inst.__r();if(inst.componentDidMount)inst.componentDidMount();return inst}
+})();
+</script>
+<script>
+
+const hostCfg=window.__GO_LIVE_CONFIG__||{};
+let realInputLevels=Array(4).fill(-90);
+let realInputSpectra=Array.from({length:4},()=>Array(48).fill(-90));
+let analyzerDisplay=Array.from({length:2},()=>Array(48).fill(-90));
+let analyzerPath='M40 170H540V172H40Z';
+const inputIndex=(channel,fallback)=>{const m=String(channel&&channel.inp||'').match(/IN\s*(\d+)/i);return m?Math.max(0,Math.min(3,+m[1]-1)):fallback};
+
+const RV=(d,z)=>[['Pre Delay','ms',0,200,1,20],['Decay','s',0.2,5,0.1,d],['Size','',2,100,1,z],['Damping','Hz',1000,20000,100,8000],['Diffusion','%',0,100,1,70],['Low Cut','Hz',20,400,5,80]];
+const FT={'Hall Reverb':RV(2.2,70),'Room Reverb':RV(0.8,30),'Chamber Reverb':RV(1.4,40),'Plate Reverb':[['Pre Delay','ms',0,200,1,10],['Decay','s',0.2,5,0.1,1.5],['Size','',2,100,1,50],['HiShelf Freq','Hz',1000,20000,100,6000],['HiShelf Gain','dB',-15,15,0.5,0],['Low Cut','Hz',20,400,5,80]],'Stereo Delay':[['Time','ms',10,1000,5,350],['Feedback','%',0,90,1,30],['Low Cut','Hz',20,400,5,100],['Hi Cut','Hz',1000,20000,100,6000]],'Stereo Chorus':[['Rate','r',0.05,10,0.05,0.8],['Depth','%',0,100,1,40],['Delay','ms',1,40,0.5,12],['Phase','%',0,100,1,50]]};
+const fxd=(t,snd,asg)=>({t,p:FT[t].map(d=>d[5]),ret:0,on:true,snd,asg:asg||[false,false]});
+const FX0=[fxd('Hall Reverb',[-10,-14],[true,true]),fxd('Plate Reverb',[-10,-10]),fxd('Stereo Delay',[-10,-10]),fxd('Stereo Chorus',[-10,-10])];
+const D={f:[70,300,500,2500,8000],q:[.71,1.4,1.1,.71]};
+const P={Podcast:{on:1,g:[-55,-62,12,300,500],c:[-20,3,8,120,1],e:[1,-2,2.5,3],...D},Flat:{on:0,g:[-50,-56,15,250,300],c:[0,1,10,100,0],e:[0,0,0,0],...D},
+'SM7B Voice':{on:1,g:[-42,-48,10,250,300],c:[-22,3.5,6,100,3],e:[1.5,-2.5,3,2],f:[80,200,400,4500,10000],q:[.71,1.2,1,.71]},
+'U87 Voice':{on:1,g:[-48,-54,8,200,250],c:[-18,3,10,150,1],e:[0,-1.5,1.5,2.5],f:[80,150,350,3000,12000],q:[.71,1.2,1,.71]},
+'SM58 Live':{on:1,g:[-38,-44,5,150,200],c:[-16,4,5,80,2],e:[-1,-3,2.5,1.5],f:[100,250,300,4000,10000],q:[.71,1.2,1.2,.71]},
+'RE20 Voice':{on:1,g:[-40,-46,10,250,300],c:[-20,3,8,120,2],e:[1,-2,2,2],f:[70,180,400,5000,10000],q:[.71,1,1.2,.71]},
+'Grand Piano':{on:0,g:[-60,-66,10,300,400],c:[-18,2,20,200,0],e:[1,-1.5,1,2],f:[40,100,300,3000,10000],q:[.71,1,1,.71]},
+'Rhodes EP':{on:0,g:[-60,-66,10,300,400],c:[-20,2.5,15,180,1],e:[0,-1.5,1.5,1],f:[60,120,250,2000,9000],q:[.71,1,1.2,.71]},
+'Synth Keys':{on:0,g:[-60,-66,10,300,400],c:[-16,2,25,200,0],e:[0,-2,1,1.5],f:[50,150,400,3500,11000],q:[.71,1,1,.71]},
+'Yamaha Montage':{on:0,g:[-60,-66,10,300,400],c:[-18,2,25,200,0],e:[0,-2,1,2],f:[30,120,300,4000,12000],q:[.71,1,1,.71]},
+'Yamaha Motif':{on:0,g:[-60,-66,10,300,400],c:[-18,2.5,20,180,0],e:[.5,-1.5,1.5,1],f:[40,120,350,3000,10000],q:[.71,1,1,.71]},
+'Nord Stage':{on:0,g:[-60,-66,10,300,400],c:[-20,2,20,200,0],e:[0,-1.5,1,1.5],f:[40,100,300,3500,10000],q:[.71,1,1,.71]},
+'Nord Electro':{on:0,g:[-60,-66,10,300,400],c:[-20,2.5,15,160,1],e:[.5,-2,1.5,.5],f:[50,150,400,2500,8000],q:[.71,1,1.2,.71]}};
+const TY=[['lcut','LCut'],['ls','LShv'],['pk','PEQ'],['vq','VEQ'],['hs','HShv'],['hc','HCut']];
+const BC=['#d0d6dc','#ff6a6a','#ffd24a','#5fdc7a','#5aa9ff'],BN=['Low Cut','Low','Lo Mid','Hi Mid','High'];
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v)),fmt=v=>(v<=-59.5?'-oo':(v>0?'+':'')+v.toFixed(1)),fHz=f=>f>=1000?(f/1000).toFixed(2)+' kHz':Math.round(f)+' Hz';
+function eqMag(b,f){const gain=b.g,sr=48000,w0=2*Math.PI*b.f/sr,c=Math.cos(w0),s=Math.sin(w0),al=s/(2*(b.t==='vq'?b.q*(1+Math.abs(gain)/9):b.q)),A=Math.pow(10,gain/40);let b0,b1,b2,a0,a1,a2;
+if(b.t==='pk'||b.t==='vq'){b0=1+al*A;b1=-2*c;b2=1-al*A;a0=1+al/A;a1=-2*c;a2=1-al/A}
+else if(b.t==='lc'||b.t==='lcut'){b0=(1+c)/2;b1=-(1+c);b2=b0;a0=1+al;a1=-2*c;a2=1-al}
+else if(b.t==='hc'){b0=(1-c)/2;b1=1-c;b2=b0;a0=1+al;a1=-2*c;a2=1-al}
+else{const k=2*Math.sqrt(A)*al;if(b.t==='ls'){b0=A*((A+1)-(A-1)*c+k);b1=2*A*((A-1)-(A+1)*c);b2=A*((A+1)-(A-1)*c-k);a0=(A+1)+(A-1)*c+k;a1=-2*((A-1)+(A+1)*c);a2=(A+1)+(A-1)*c-k}else{b0=A*((A+1)+(A-1)*c+k);b1=-2*A*((A-1)+(A+1)*c);b2=A*((A+1)+(A-1)*c-k);a0=(A+1)-(A-1)*c+k;a1=2*((A-1)-(A+1)*c);a2=(A+1)-(A-1)*c-k}}
+const w=2*Math.PI*f/sr,cw=Math.cos(w),sw=Math.sin(w),c2=Math.cos(2*w),s2=Math.sin(2*w),nr=b0+b1*cw+b2*c2,ni=b1*sw+b2*s2,dr=a0+a1*cw+a2*c2,di=a1*sw+a2*s2;
+return 10*Math.log10((nr*nr+ni*ni)/(dr*dr+di*di))}
+class Component extends DCLogic {
+constructor(props){super(props);this.state=this.fresh('gate');this.go=[true,true];this.mv=[-90,-90,-90];this.lastMeterAt=Date.now();this.gg=[0,0];this.gc=[0,0];this.pl=[-90,-90];this.snap=null}
+mk(name,color,fg,db,trim,pre,gOn){const p=P[pre],E=p.e;return {name,color,fg,db,trim,mute:false,solo:false,gOn,eOn:false,cOn:false,pre,g:p.g.slice(),c:p.c.slice(),inp:'Interface Â· IN '+(name==='Vocal'?1:2),e:[{t:'lc',f:70,g:0,q:.71,on:true},{t:'ls',f:300,g:E[0],q:.71,on:true},{t:'pk',f:500,g:E[1],q:1.4,on:true},{t:'pk',f:2500,g:E[2],q:1.1,on:true},{t:'hs',f:8000,g:E[3],q:.71,on:true}]}}
+fresh(page){return {obsHost:'127.0.0.1',obsPort:'4455',obsPw:'',obsSource1:hostCfg.obsSource1||'',obsSource2:hostCfg.obsSource2||'',obsStatus:'Not connected',obsRouteText:'Connect to OBS and assign a source to each channel.',audioInfoText:'Waiting for audio inputâ€¦',clipText:'',clipCount:0,codeT:Date.now(),page,fx:undefined,fxi:0,lay:'mix',sel:0,mode:'local',obs:false,live:false,rec:false,recStatus:'Ready Â· choose WAV destination to start',recFile:'',audioDeviceIndex:hostCfg.audioInputIndex||0,t0:0,now:Date.now(),bypass:false,remote:true,code:hostCfg.code||'K7M2QX9A',inDev:'Interface Â· IN 1 / IN 2',band:2,main:{db:0,mute:false},lv:[-90,-90,-90],ggs:[0,0],gcs:[0,0],hasSnap:false,sp:Array(48).fill(-90),rta:true,ch:[this.mk('Vocal','#8a4fc4','#fff',-3.2,6,'Podcast',false),this.mk('Keys','#b5babf','#111',-8,0,'Flat',false)]}}
+componentDidMount(){this.timer=setInterval(()=>this.tick(),1000/30)}
+componentWillUnmount(){clearInterval(this.timer)}
+tick(){const s=this.state,anyS=s.ch.some(c=>c.solo),pf=[];
+s.ch.forEach((c,i)=>{
+const channelMuted=s.main.mute||c.mute||(anyS&&!c.solo);
+if(channelMuted){this.gg[i]=0;this.gc[i]=0;this.pl[i]=-90;pf.push(-90);return}
+let base=realInputLevels[inputIndex(c,i)],x=base+c.trim,gT=0,cT=0;
+if(!s.bypass){if(c.gOn){if(x>c.g[0])this.go[i]=true;else if(x<c.g[1])this.go[i]=false;gT=this.go[i]?0:40}
+this.gg[i]+=(gT-this.gg[i])*(gT>this.gg[i]?0.5:0.3);x-=this.gg[i];
+if(c.cOn){cT=Math.max(0,x-c.c[0])*(1-1/c.c[1]);x=x-cT+c.c[4]}}else this.gg[i]=0;
+this.gc[i]=cT;this.pl[i]=x;let o=x+c.db;if(c.mute||(anyS&&!c.solo))o=-90;pf.push(o)});
+const sum=pf.reduce((a,v)=>a+Math.pow(10,v/10),0),m=s.main.mute?-90:10*Math.log10(sum+1e-9)+s.main.db,raw=[pf[0],pf[1],m],now=Date.now(),dt=cl((now-this.lastMeterAt)/1000,0.008,0.08);this.lastMeterAt=now;
+this.mv=raw.map((v,i)=>{const muted=i===2?s.main.mute:(s.main.mute||s.ch[i].mute||(anyS&&!s.ch[i].solo));if(muted)return -90;const previous=this.mv[i],tau=v>previous?0.11:0.34,alpha=1-Math.exp(-dt/tau);return Math.max(-90,previous+(v-previous)*alpha)});
+this.setState({lv:this.mv.slice(),ggs:this.gg.slice(),gcs:this.gc.slice(),now})}
+upd(i,p){this.setState(s=>({ch:s.ch.map((c,k)=>k===i?{...c,...p}:c)}))}
+arr(i,key,k,v){this.setState(s=>({ch:s.ch.map((c,n)=>n===i?{...c,[key]:c[key].map((x,j)=>j===k?v:x)}:c)}))}
+band(i,b,p){this.setState(s=>({ch:s.ch.map((c,n)=>n===i?{...c,e:c.e.map((x,j)=>j===b?{...x,...p}:x)}:c)}))}
+applyPre(i,n){const p=P[n];this.setState(s=>({ch:s.ch.map((c,k)=>k===i?{...c,pre:n,gOn:!!p.on,g:p.g.slice(),c:p.c.slice(),e:c.e.map((x,j)=>{const o={...x};if(p.f)o.f=p.f[j];if(j>0){o.g=p.e[j-1];if(p.q)o.q=p.q[j-1]}return o})}:c)}))}
+renderVals(){
+const s=this.state,i=s.sel,c=s.ch[i],g=c.g,cp=c.c,mask=v=>Math.round((1-(cl(v,-60,6)+60)/66)*220),cap=db=>Math.round((6-db)/66*220-14);
+const K=(label,text,min,max,step,v,cb,t)=>({label,text,min,max,step,value:v,fill:cl((v-min)/(max-min)*100,0,100),cb:e=>cb(+e.target.value),editable:true,hasTicks:!!t,t0:t?t[0]:'',t1:t?t[1]:'',t2:t?t[2]:'',t3:t?t[3]:'',t4:t?t[4]:'',sz:''});
+const L=(label,text,fill,t)=>({label,text,fill:cl(fill,0,100),editable:false,hasTicks:true,t0:t[0],t1:t[1],t2:t[2],t3:t[3],t4:t[4],sz:''});
+const dbT=['0','-20','-40','-60','-80'],dB=v=>v.toFixed(1)+' dB';
+const gA=[K('Threshold',dB(g[0]),-80,0,0.5,g[0],v=>this.arr(i,'g',0,v),dbT),L('GR',dB(s.ggs[i]),s.ggs[i]/40*100,['0','10','20','30','40']),K('Close',dB(g[1]),-80,0,0.5,g[1],v=>this.arr(i,'g',1,v),dbT)];
+const gB=[K('Attack',Math.round(g[2])+' ms',1,200,1,g[2],v=>this.arr(i,'g',2,v)),K('Hold',Math.round(g[3])+' ms',0,2000,10,g[3],v=>this.arr(i,'g',3,v)),K('Release',Math.round(g[4])+' ms',5,2000,5,g[4],v=>this.arr(i,'g',4,v))];
+const cA=[K('Threshold',dB(cp[0]),-60,0,0.5,cp[0],v=>this.arr(i,'c',0,v),['0','-15','-30','-45','-60']),K('Ratio',cp[1].toFixed(1)+':1',1,20,0.1,cp[1],v=>this.arr(i,'c',1,v)),L('GR',dB(s.gcs[i]),s.gcs[i]/20*100,['0','5','10','15','20'])];
+const cB=[K('Attack',Math.round(cp[2])+' ms',1,100,1,cp[2],v=>this.arr(i,'c',2,v)),K('Release',Math.round(cp[3])+' ms',10,1000,5,cp[3],v=>this.arr(i,'c',3,v)),K('Gain',fmt(cp[4])+' dB',-6,12,0.5,cp[4],v=>this.arr(i,'c',4,v))];
+const bI=s.band,b=c.e[bI],bf=1000*Math.log10(b.f/20)/3;
+const eqC=[K('Freq',fHz(b.f),0,1000,1,bf,v=>this.band(i,bI,{f:Math.round(20*Math.pow(10,3*v/1000))})),b.t==='lc'?L('Gain','--',50,['','','','','']):K('Gain',fmt(b.g)+' dB',-18,18,0.25,b.g,v=>this.band(i,bI,{g:v})),K('Q',b.q.toFixed(2),0.3,8,0.05,b.q,v=>this.band(i,bI,{q:v}))];
+eqC[1].hasTicks=false;
+const eqx={};c.e.forEach((x,k)=>{const S=o=>({...o,sz:'s'}),F=S(K('Freq',fHz(x.f),0,1000,1,1000*Math.log10(x.f/20)/3,v=>this.band(i,k,{f:Math.round(20*Math.pow(10,3*v/1000))}))),Q=S(K('Q',x.q.toFixed(2),0.3,8,0.05,x.q,v=>this.band(i,k,{q:v})));const ng=x.t==='lcut'||x.t==='hc';eqx['eq'+k]=k===0?[F]:ng?[F,Q]:[S(K('Gain',fmt(x.g)+' dB',-18,18,0.25,x.g,v=>this.band(i,k,{g:v}))),F,Q];if(k>0)eqx['ty'+k]=TY.map(([v,l])=>({label:l,cls:'bn'+(x.t===v?' sel':''),pick:()=>this.band(i,k,{t:v})}));eqx['bp'+k]={title:BN[k],col:BC[k],onCls:'bn'+(x.on?' sel':''),onText:x.on?'On':'Off',toggle:()=>this.band(i,k,{on:!x.on})}});
+const trC=[K('Trim',fmt(c.trim)+' dB',-20,20,0.5,c.trim,v=>this.upd(i,{trim:v}))];
+let gp='',cpth='',ep='';
+for(let x=-80;x<=0;x+=4){const o=Math.max(x<g[0]?x-40:x,-80);gp+=(gp?'L':'M')+((x+80)*1.5).toFixed(1)+' '+(100-(o+80)*1.25).toFixed(1)}
+for(let x=-60;x<=0;x+=3){let o=(x<=cp[0]?x:cp[0]+(x-cp[0])/cp[1])+cp[4];o=cl(o,-60,0);cpth+=(cpth?'L':'M')+((x+60)*2).toFixed(1)+' '+(100-(o+60)*100/60).toFixed(1)}
+const act=!s.bypass&&c.eOn,eqAt=f=>act?c.e.reduce((a,x)=>a+(x.on?eqMag(x,f):0),0):0;
+for(let k=0;k<=100;k+=2){const f=20*Math.pow(10,3*k/100);ep+=(ep?'L':'M')+(40+k*5)+' '+(90-5*cl(eqAt(f),-18,18)).toFixed(1)}
+const nd={};c.e.forEach((x,k)=>{nd['n'+k+'x']=(40+500*Math.log10(x.f/20)/3).toFixed(1);const y=90-5*cl((x.t==='lc'||x.t==='lcut'||x.t==='hc')?eqAt(x.f):x.g,-18,18);nd['n'+k+'y']=y.toFixed(1);nd['n'+k+'ty']=(y+4).toFixed(1);nd['n'+k+'w']=k===bI?3:1});
+const ax=6+Math.min(60,g[2]/200*60),hx=10+g[3]/2000*60,rx=10+g[4]/2000*60,envPts='0,60 '+ax.toFixed(1)+',8 '+(ax+hx).toFixed(1)+',8 '+Math.min(150,ax+hx+rx).toFixed(1)+',60';
+const NX=c.e.map((x,k)=>+nd['n'+k+'x']),NY=c.e.map((x,k)=>+nd['n'+k+'y']),pt=e=>{const r=e.currentTarget.getBoundingClientRect();return [(e.clientX-r.left)/r.width*580,(e.clientY-r.top)/r.height*192-12]};
+const gDown=e=>{const [x,y]=pt(e);let best=-1,bd=24;NX.forEach((nx,k)=>{const d=Math.hypot(nx-x,NY[k]-y);if(d<bd){bd=d;best=k}});if(best<0)return;this.drag=best;this.dy=y;if(e.currentTarget.setPointerCapture)e.currentTarget.setPointerCapture(e.pointerId);this.setState({band:best})};
+const gMove=e=>{if(this.drag==null)return;const k=this.drag,[x,y]=pt(e),b0=c.e[k];if(e.shiftKey){this.band(i,k,{q:cl(Math.round((b0.q+(this.dy-y)*0.04)*100)/100,0.3,8)});this.dy=y;return}const f=Math.round(cl(20*Math.pow(10,(x-40)/500*3),20,20000));this.band(i,k,(b0.t==='lc'||b0.t==='lcut'||b0.t==='hc')?{f:b0.t==='lc'?cl(f,20,400):f}:{f,g:Math.round(cl((90-y)/5,-18,18)*4)/4})};
+const gUp=()=>{this.drag=null};
+const live2=s.mode==='local'||s.obs,rp=analyzerPath;
+const rtaNote=!s.rta?'RTA off':live2?'RTA Â· '+c.name+' Â· post-EQ':'RTA waiting â€” connect OBS to see the spectrum';
+const fxs=s.fx||FX0,fi=s.fxi||0,fa=fxs[fi],fd=FT[fa.t];
+const setFx=(n,p)=>this.setState({fx:fxs.map((x,k)=>k===n?{...x,...p}:x)});
+const fxTxt=(u,v)=>u==='Hz'?fHz(v):u==='r'?v.toFixed(2)+' Hz':u==='s'?v.toFixed(1)+' s':u==='ms'?Math.round(v)+' ms':u==='%'?Math.round(v)+' %':u==='dB'?fmt(v)+' dB':String(Math.round(v));
+const fxP=fd.map((d,k)=>K(d[0],fxTxt(d[1],fa.p[k]),d[2],d[3],d[4],fa.p[k],v=>setFx(fi,{p:fa.p.map((x,j)=>j===k?v:x)})));
+const fxBank=fxs.map((x,k)=>({...K('FX'+(k+1)+' return',fmt(x.ret)+' dB',-60,6,0.5,x.ret,v=>setFx(k,{ret:v})),nm:'FX'+(k+1),selCls:'bn'+(k===fi?' sel':''),pick:()=>this.setState({fxi:k}),onCls:'bn'+(x.on?' sel':''),onTxt:x.on?'On':'Off',tog:()=>setFx(k,{on:!x.on})}));
+const sendOf=ci=>fxs.map((x,k)=>({...K('Send FX'+(k+1)+' to '+s.ch[ci].name,x.asg[ci]?fmt(x.snd[ci])+' dB':'Off',-60,6,0.5,x.snd[ci],v=>setFx(k,{snd:x.snd.map((y,j)=>j===ci?v:y)})),btnCls:'bn'+(x.asg[ci]?' sel':''),tog:()=>setFx(k,{asg:x.asg.map((y,j)=>j===ci?!y:y)}),dim:x.asg[ci]&&x.on?'':'opacity:.4',lab:'FX'+(k+1),tip:x.asg[ci]?'Assigned: click to remove from '+s.ch[ci].name:'Click to assign FX'+(k+1)+' to '+s.ch[ci].name}));
+const sendA=sendOf(0),sendB=sendOf(1),nameA=s.ch[0].name,nameB=s.ch[1].name;
+const fxSl=fxs.map((x,k)=>({label:'FX'+(k+1)+' Â· '+x.t.replace(' Reverb','').replace('Stereo ',''),cls:'bn'+(k===fi?' sel':''),pick:()=>this.setState({fxi:k})}));
+const fxTy=Object.keys(FT).map(n=>({label:n,cls:'bn'+(fa.t===n?' sel':''),pick:()=>setFx(fi,{t:n,p:FT[n].map(d=>d[5])})}));
+const remUrl=hostCfg.url||'http://192.168.1.42:8443/',remLeft=Math.max(0,180-Math.floor((s.now-s.codeT)/1000)),codeLeft=!s.remote?'Remote disabled':remLeft>0?'Valid '+Math.floor(remLeft/60)+':'+String(remLeft%60).padStart(2,'0'):'Expired';
+if(this.qrFor!==remUrl){this.qrFor=remUrl;try{const q=new QRC(-1,QRL.M);q.addData(remUrl);q.make();const n=q.getModuleCount();let d='';for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+='M'+c+' '+r+'h1v1h-1z';this.qrData='data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+n+' '+n+'" shape-rendering="crispEdges"><path d="'+d+'" fill="#000"/></svg>')}catch(e){this.qrData=''}}
+const qrUrl=this.qrData||'';
+const pick=n=>this.setState({page:n}),anySoloNow=s.ch.some(x=>x.solo),tabs=[['Channel','channel','M7 3H17V21H7Z','M9.5 14H14.5M12 6V9','#c9a6ff',2.4],['Gate','gate','M3 19H9V6H15V19H21','M3 12H21','#5ec2ff',1.6],['EQ','eq','M2 17C6 17 7 8 12 8S18 17 22 17','M12 8H12.01M19 15H19.01M5 15.5H5.01','#ffd24a',4],['Comp','comp','M4 6L10 12L4 18M20 6L14 12L20 18','M12 4V20','#5fdc7a',1.8],['Main','main','M8 4V20M16 4V20','M5.5 12H10.5M13.5 8H18.5','#ff7a7a',3],['Meter','meter','M5 20V13M10 20V7M15 20V11M20 20V5','M5 9H5.01M10 3.5H10.01M15 7.5H15.01M20 2H20.01','#ffa94d',3.4]].map(([label,k,d,d2,acc,aw])=>({label,d,d2,acc,aw,cls:'tab'+(s.page===k?' on':'')+(!s.bypass&&((k==='gate'&&c.gOn)||(k==='eq'&&c.eOn)||(k==='comp'&&c.cOn))?' po':''),go:()=>pick(k)}));
+let strips=s.ch.map((x,k)=>({name:x.name,color:x.color,fg:x.fg,num:'0'+(k+1),stc:'stp'+(s.sel===k&&s.page!=='main'?' on':''),gc:x.gOn&&!s.bypass?'on':'',ec:x.eOn&&!s.bypass?'on':'',cc:x.cOn&&!s.bypass?'on':'',tg:()=>this.upd(k,{gOn:!x.gOn}),te:()=>this.upd(k,{eOn:!x.eOn}),tc:()=>this.upd(k,{cOn:!x.cOn}),db:fmt(x.db),rawDb:x.db,cap:cap(x.db),mask:mask(s.lv[k]),mask2:0,twin:false,hasSolo:true,muteTxt:'Mute',v:x.db,label:x.name+' fader',soloCls:'bn so'+(x.solo?' act':''),muteCls:'bn mu'+(x.mute||s.main.mute||(anySoloNow&&!x.solo)?' act':''),pick:()=>this.setState({sel:k}),onSolo:()=>this.upd(k,{solo:!x.solo}),onMute:()=>this.upd(k,{mute:!x.mute}),onF:e=>this.upd(k,{db:+e.target.value}),onDb:e=>this.upd(k,{db:cl(+e.target.value,-60,6)})}));
+strips.push({name:'Main LR',stc:'stp'+(s.page==='main'?' on':''),color:'#d12b2b',fg:'#fff',num:'Main',db:fmt(s.main.db),rawDb:s.main.db,cap:cap(s.main.db),mask:mask(s.lv[2]),mask2:mask(s.lv[2]-1.2),twin:true,hasSolo:false,muteTxt:'Mute',v:s.main.db,label:'Main fader',soloCls:'',muteCls:'bn mu'+(s.main.mute?' act':''),pick:()=>pick('main'),onSolo:()=>{},onMute:()=>this.setState({main:{...s.main,mute:!s.main.mute}}),onF:e=>this.setState({main:{...s.main,db:+e.target.value}}),onDb:e=>this.setState({main:{...s.main,db:cl(+e.target.value,-60,6)}})});
+const lay=s.lay===undefined?'mix':s.lay,mainStrip=strips[strips.length-1];
+const rtn=(n,x)=>({name:'FX'+(n+1),color:'#8a5cf0',fg:'#fff',num:'FX'+(n+1)+' Rtn',stc:'stp'+(s.fxi===n&&s.page==='fx'?' on':''),gc:'',ec:'',cc:'',tg:()=>{},te:()=>{},tc:()=>{},db:fmt(x.ret),rawDb:x.ret,cap:cap(x.ret),mask:mask(-80),mask2:0,twin:false,hasSolo:false,muteTxt:x.on?'On':'Off',v:x.ret,label:'FX'+(n+1)+' return fader',soloCls:'',muteCls:'bn'+(x.on?' sel':''),pick:()=>this.setState({fxi:n,page:'fx'}),onSolo:()=>{},onMute:()=>setFx(n,{on:!x.on}),onF:e=>setFx(n,{ret:+e.target.value}),onDb:e=>setFx(n,{ret:cl(+e.target.value,-60,6)})});
+if(typeof lay==='number'){const x=fxs[lay];strips=s.ch.map((c0,k)=>({...strips[k],stc:'stp'+(s.sel===k&&s.page!=='main'?' on':''),db:x.asg[k]?fmt(x.snd[k]):'Off',rawDb:x.snd[k],cap:cap(x.asg[k]?x.snd[k]:-60),v:x.snd[k],hasSolo:false,num:'FX'+(lay+1)+' send',label:c0.name+' send to FX'+(lay+1),muteTxt:'Assign',muteCls:'bn'+(x.asg[k]?' sel':''),onMute:()=>setFx(lay,{asg:x.asg.map((y,j)=>j===k?!y:y)}),onF:e=>setFx(lay,{snd:x.snd.map((y,j)=>j===k?+e.target.value:y),asg:x.asg.map((y,j)=>j===k?true:y)}),onDb:e=>setFx(lay,{snd:x.snd.map((y,j)=>j===k?cl(+e.target.value,-60,6):y),asg:x.asg.map((y,j)=>j===k?true:y)})}));strips.push(rtn(lay,x))}
+else if(lay==='ret'){strips=fxs.map((x,n)=>rtn(n,x));strips.push(mainStrip)}
+const layBtns=[['Mix','mix'],['FX1 Send',0],['FX2 Send',1],['FX3 Send',2],['FX4 Send',3],['FX Returns','ret']].map(([label,v])=>({label,cls:'bn'+(lay===v?' sel':''),go:()=>this.setState({lay:v})}));
+const se={rn:e=>{const v=e.target.value;this.upd(i,{name:v||e.type==='input'?v:'CH '+(i+1)})},name:c.name,color:c.color,fg:c.fg,num:'0'+(i+1),db:fmt(c.db),cap:cap(c.db),mask:mask(s.lv[i]),v:c.db,inp:c.inp,obsSource:i===0?s.obsSource1:s.obsSource2,makeup:fmt(cp[4]),onF:e=>this.upd(i,{db:+e.target.value})};
+const presets=Object.keys(P).map(n=>({label:n,cls:'bn'+(c.pre===n?' sel':''),pick:()=>this.applyPre(i,n)}));
+const bands=c.e.map((x,k)=>({label:BN[k],col:BC[k],cls:'bn'+(k===bI?' sel':''),pick:()=>this.setState({band:k})}));
+const mm=[['CH 1',0],['CH 2',1],['MAIN',2]].map(([label,k])=>({label,mask:mask(s.lv[k]),text:fmt(s.lv[k])+' dB'}));
+const sec=s.rec?Math.floor((s.now-s.t0)/1000):0,p2=n=>String(n).padStart(2,'0'),local=s.mode==='local';
+const audioChoices=(hostCfg.audioInputs||[]).map((name,k)=>({name,value:String(k)}));
+const on=v=>'bn'+(v?' sel':'');
+return {...eqx,tcls0:tabs[0].cls,tgo0:tabs[0].go,tcls1:tabs[1].cls,tgo1:tabs[1].go,tcls2:tabs[2].cls,tgo2:tabs[2].go,tcls3:tabs[3].cls,tgo3:tabs[3].go,tcls4:tabs[4].cls,tgo4:tabs[4].go,tcls5:tabs[5].cls,tgo5:tabs[5].go,rtaPath:rp,rtaNote,rtaCls:'bn'+(s.rta?' sel':''),toggleRta:()=>this.setState({rta:!s.rta}),gDown,gMove,gUp,tabs,strips,se,presets,bands,mm,gA,gB,cA,cB,eqC,trC,gatePath:gp,compPath:cpth,eqPath:ep,envPts,...nd,
+layBtns,fxP,fxBank,sendA,sendB,nameA,nameB,fxSl,fxTy,fxOnCls:'bn'+(fa.on?' sel':''),fxOn:()=>setFx(fi,{on:!fa.on}),fxName:'FX'+(fi+1)+' Â· '+fa.t,tclsFx:'tab'+(s.page==='fx'?' on':''),tgoFx:()=>this.setState({page:'fx'}),isFx:s.page==='fx',
+isGate:s.page==='gate',isComp:s.page==='comp',isEq:s.page==='eq',isCh:s.page==='channel',isMain:s.page==='main',isMeter:s.page==='meter',
+gateCls:on(c.gOn),compCls:on(c.cOn),eqCls:on(c.eOn),bandOnCls:on(b.on),bandName:'Band Â· '+BN[bI],
+toggleGate:()=>this.upd(i,{gOn:!c.gOn}),toggleComp:()=>this.upd(i,{cOn:!c.cOn}),toggleEq:()=>this.upd(i,{eOn:!c.eOn}),toggleBand:()=>this.band(i,bI,{on:!b.on}),flatEq:()=>this.setState({ch:s.ch.map((x,k)=>k===i?{...x,e:x.e.map((q,j)=>j>0?{...q,g:0}:q)}:x)}),
+setInp:e=>this.upd(i,{inp:e.target.value}),mainDb:fmt(s.main.db)+' dB',mainMuCls:'bn mu'+(s.main.mute?' act':''),mainMuteText:s.main.mute?'Unmute Main':'Mute Main',panicCls:s.main.mute?'bn act':'bn',panicMute:()=>this.setState({main:{...s.main,mute:true}}),mainMute:()=>this.setState({main:{...s.main,mute:!s.main.mute}}),
+clearSolo:()=>this.setState({ch:s.ch.map(x=>({...x,solo:false}))}),bypCls:on(s.bypass),toggleByp:()=>this.setState({bypass:!s.bypass}),
+save:()=>{this.snap=JSON.stringify({ch:s.ch,main:s.main,fx:s.fx||FX0});this.setState({hasSnap:true})},loadCls:'bn'+(s.hasSnap?' sel':''),load:()=>{if(this.snap)this.setState(JSON.parse(this.snap))},
+localCls:on(local),obsCls:on(!local),goLocal:()=>this.setState({mode:'local'}),goObs:()=>this.setState({mode:'obs'}),audioChoices,audioDeviceIndex:s.audioDeviceIndex,
+code:s.code,qr:qrUrl,remUrl:remUrl,remIp:'192.168.1.42',codeLeft:codeLeft,codeCol:!s.remote?'#9a9a9a':codeLeft==='Expired'?'#ff6b6b':'#bbb',remoteCls:on(s.remote),remoteText:s.remote?'Remote Active Â· Disable':'Activate Remote',remoteOpacity:s.remote?'1':'.35',toggleRemote:()=>this.setState({remote:!s.remote}),setHost:e=>this.setState({obsHost:e.target.value}),setPort:e=>this.setState({obsPort:e.target.value}),setPw:e=>this.setState({obsPw:e.target.value}),obsHost:s.obsHost,obsPort:s.obsPort,obsPw:s.obsPw,newCode:()=>this.setState({codeT:Date.now(),code:Array.from({length:8},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('')}),reset:()=>this.setState(this.fresh(s.page)),
+panelTitle:local?'Local Live':'OBS Control',isLocal:local,isObs:!local,inDev:s.inDev,recStatus:s.recStatus||'Ready',recFile:s.recFile,
+setIn2:e=>{if(s.rec){e.target.value=String(s.audioDeviceIndex);return}const index=+e.target.value,name=(hostCfg.audioInputs||[])[index]||'Audio input';this.setState({audioDeviceIndex:index,inDev:name});if(window.webkit&&window.webkit.messageHandlers.goLiveAudioDevice)window.webkit.messageHandlers.goLiveAudioDevice.postMessage(index)},
+recCls:'bn mu'+(s.rec?' act':''),recText:s.rec?'â–  Stop Recording':(local?'â— Record WAVâ€¦':'â— Start Recording'),obsRecText:s.rec?'â–  Stop Recording':'â— Start Recording',recTime:p2(Math.floor(sec/3600))+':'+p2(Math.floor(sec/60)%60)+':'+p2(sec%60),toggleRec:()=>{if(local){if(window.webkit&&window.webkit.messageHandlers.goLiveRecordingControl)window.webkit.messageHandlers.goLiveRecordingControl.postMessage({action:s.rec?'stop':'start'});if(!s.rec)this.setState({recStatus:'Choose a WAV destinationâ€¦'});return}if(!s.obs){this.setState({obsStatus:'Connect to OBS before recording'});return}const active=!s.rec;if(window.webkit&&window.webkit.messageHandlers.goLiveOutputControl)window.webkit.messageHandlers.goLiveOutputControl.postMessage({action:active?'startRecord':'stopRecord'});this.setState({rec:active,t0:active?Date.now():s.t0,now:Date.now()})},
+obsText:s.obsStatus||'Not connected',connText:s.obs?'Disconnect':'Connect',connCls:on(s.obs),obsSourceOptions:hostCfg.obsInputs||[],assignSelectedOBS:e=>{const source=e.target.value,ch=i+1;this.setState(i===0?{obsSource1:source}:{obsSource2:source});if(window.webkit&&window.webkit.messageHandlers.goLiveAssignOBS)window.webkit.messageHandlers.goLiveAssignOBS.postMessage({channel:ch,source})},toggleConn:()=>{if(s.obs){if(window.webkit&&window.webkit.messageHandlers.goLiveConnectOBS)window.webkit.messageHandlers.goLiveConnectOBS.postMessage({disconnect:true});this.setState({obs:false,obsStatus:'Disconnectingâ€¦',live:false})}else{this.setState({obsStatus:'Connecting to OBSâ€¦'});if(window.webkit&&window.webkit.messageHandlers.goLiveConnectOBS)window.webkit.messageHandlers.goLiveConnectOBS.postMessage({host:s.obsHost,port:+s.obsPort||4455,password:s.obsPw});else this.setState({obsStatus:'OBS connection requires the macOS app'})}},connectObsOnEnter:e=>{if(e.key==='Enter'&&!s.obs){e.preventDefault();this.setState({obsStatus:'Connecting to OBSâ€¦'});if(window.webkit&&window.webkit.messageHandlers.goLiveConnectOBS)window.webkit.messageHandlers.goLiveConnectOBS.postMessage({host:s.obsHost,port:+s.obsPort||4455,password:s.obsPw});else this.setState({obsStatus:'OBS connection requires the macOS app'})}},
+liveText:s.live?'â–  Stop Stream':'Start Stream',liveCls:'bn mu'+(s.live?' act':''),toggleLive:()=>{if(!s.obs){this.setState({obsStatus:'Connect to OBS before streaming'});return}const active=!s.live;if(window.webkit&&window.webkit.messageHandlers.goLiveOutputControl)window.webkit.messageHandlers.goLiveOutputControl.postMessage({action:active?'startStream':'stopStream'});this.setState({live:active})}}}
+}
+
+
+window.goLiveMixer=dcMount(document.getElementById('root'),document.getElementById('tpl').textContent,Component);
+window.__goLiveSetRemoteControl=function(c){const a=window.goLiveMixer;if(!a)return;const s=a.state,i=(c.channel||1)-1;if(c.type==='fader'){if(c.channel===0)a.setState({main:{...s.main,db:+c.value}});else a.setState({ch:s.ch.map((x,k)=>k===i?{...x,db:+c.value}:x)})}else if(c.type==='mute')a.setState({ch:s.ch.map((x,k)=>k===i?{...x,mute:!x.mute}:x)});else if(c.type==='solo')a.setState({ch:s.ch.map((x,k)=>k===i?{...x,solo:!x.solo}:x)});else if(c.type==='mainMute')a.setState({main:{...s.main,mute:!s.main.mute}})};
+window.__goLiveRemoteState=function(){const s=window.goLiveMixer&&window.goLiveMixer.state;return s?JSON.stringify({ch:s.ch.slice(0,2).map(c=>({db:c.db,trim:c.trim,input:c.inp,mute:c.mute,solo:c.solo,dsp:{bypass:s.bypass,gOn:c.gOn,eOn:c.eOn,cOn:c.cOn,g:c.g,c:c.c,e:c.e.map(b=>({t:b.t,f:b.f,gain:b.g,q:b.q,on:b.on}))}})),main:s.main,fx:s.fx||FX0}):null};
+window.__goLiveSetAudioLevels=function(v){
+const app=window.goLiveMixer;if(app&&v&&v.info){const info=v.info,clips=info.clips||[],active=clips.map((on,i)=>on?'IN '+(i+1):'').filter(Boolean),audioInfoText=info.channels?info.channels+' input channel(s) Â· '+Math.round(info.sampleRate)+' Hz':'No active input',clipText=active.length?'CLIP Â· '+active.join(', '):'';if(app.state.audioInfoText!==audioInfoText||app.state.clipText!==clipText)app.setState({audioInfoText,clipText,clipCount:active.length})}
+if(v&&Array.isArray(v.levels))realInputLevels=Array.from({length:4},(_,i)=>Number(v.levels[i]??-90));
+if(v&&Array.isArray(v.spectra))realInputSpectra=Array.from({length:4},(_,i)=>Array.isArray(v.spectra[i])?v.spectra[i].map(Number):Array(48).fill(-90));
+const s=app&&app.state;
+if(!s||!s.rta)return;
+const c=s.ch[s.sel],source=inputIndex(c,s.sel);
+const anySolo=s.ch.some(x=>x.solo),muted=s.main.mute||c.mute||(anySolo&&!c.solo);
+if(muted){analyzerDisplay[s.sel].fill(-90);const node=document.getElementById('rtaSpectrum');if(node)node.setAttribute('d','M40 170H540V172H40Z');return}
+for(let k=0;k<48;k++){
+const f=20*Math.pow(10,3*k/47),raw=realInputSpectra[source][k]??-90;
+let d=raw<=-85?-90:raw+((app.pl&&app.pl[s.sel]||realInputLevels[source])-realInputLevels[source]);
+if(raw>-85&&!s.bypass&&c.eOn)d+=c.e.reduce((a,b)=>a+(b.on?eqMag(b,f):0),0);
+d=Math.max(-90,d);
+analyzerDisplay[s.sel][k]+=0.22*(d-analyzerDisplay[s.sel][k]);
+}
+let path='';analyzerDisplay[s.sel].forEach((d,k)=>{path+=(k?'L':'M')+(40+k*500/47).toFixed(1)+' '+(170-cl((d+90)/70,0,1)*150).toFixed(1)});
+analyzerPath=path+'V172H40Z';
+const node=document.getElementById('rtaSpectrum');if(node)node.setAttribute('d',analyzerPath);
+};
+window.__goLiveAudioInputs=function(value){const names=Array.isArray(value)?value:(value.names||[]),index=Array.isArray(value)?(hostCfg.audioInputIndex||0):(value.index||0);hostCfg.audioInputs=names;hostCfg.audioInputIndex=index;const el=document.getElementById('inputDevice');if(el){el.replaceChildren(...names.map((n,i)=>new Option(n,String(i))));if(names.length)el.value=String(Math.min(index,names.length-1))}const m=window.goLiveMixer;if(m)m.setState({audioDeviceIndex:index,inDev:names[index]||'No audio input device'})};
+window.__goLiveRecordingStatus=function(v){const m=window.goLiveMixer;if(!m)return;m.setState({rec:!!v.active,recStatus:String(v.text||''),recFile:String(v.file||''),t0:v.active?Date.now():m.state.t0,now:Date.now()})};
+window.__goLiveObsStatus=function(v){if(window.goLiveMixer)window.goLiveMixer.setState({obs:!!v.connected,obsStatus:String(v.text||'Not connected')})};
+window.__goLiveObsInputs=function(v){hostCfg.obsInputs=v.inputs||[];hostCfg.obsSource1=v.source1||'';hostCfg.obsSource2=v.source2||'';const m=window.goLiveMixer;if(m){const connected=m.state.obs,a=hostCfg.obsSource1,b=hostCfg.obsSource2,validA=!!a&&hostCfg.obsInputs.includes(a),validB=!!b&&hostCfg.obsInputs.includes(b);m.setState({obsSource1:a,obsSource2:b,obsRouteText:connected?(validA&&validB?'CH 1 â†’ '+a+' Â· CH 2 â†’ '+b:(!validA&&!validB?'Assign OBS inputs to CH 1 and CH 2.':!validA?'Assign a valid OBS input to CH 1.':'Assign a valid OBS input to CH 2.')):'Connect to OBS and assign a source to each channel.'})}if(window.__goLiveRefreshOBSSelect)window.__goLiveRefreshOBSSelect()};
+window.__goLiveRefreshOBSSelect=function(){const el=document.getElementById('obsAssignment'),m=window.goLiveMixer;if(!el||!m)return;const n=m.state.sel===0?m.state.obsSource1:m.state.obsSource2;el.replaceChildren(new Option(hostCfg.obsInputs&&hostCfg.obsInputs.length?'Select OBS source':'Connect OBS first',''),...(hostCfg.obsInputs||[]).map(x=>new Option(x,x)));el.value=n||''};
+window.__goLiveObsStatus=function(v){const m=window.goLiveMixer;if(!m)return;const s=m.state,available=hostCfg.obsInputs||[],a=s.obsSource1,b=s.obsSource2;let route='Connect to OBS and assign a source to each channel.';if(v.connected){const okA=!!a&&available.includes(a),okB=!!b&&available.includes(b);route=okA&&okB?'CH 1 â†’ '+a+' Â· CH 2 â†’ '+b:(!okA&&!okB?'Assign OBS inputs to CH 1 and CH 2.':!okA?'Assign a valid OBS input to CH 1.':'Assign a valid OBS input to CH 2.')}m.setState({obs:!!v.connected,obsStatus:String(v.text||'Not connected'),obsRouteText:route})};
+window.__goLiveObsInputs=function(v){hostCfg.obsInputs=v.inputs||[];hostCfg.obsSource1=v.source1||'';hostCfg.obsSource2=v.source2||'';const m=window.goLiveMixer;if(m){const connected=m.state.obs,a=hostCfg.obsSource1,b=hostCfg.obsSource2,validA=!!a&&hostCfg.obsInputs.includes(a),validB=!!b&&hostCfg.obsInputs.includes(b);m.setState({obsSource1:a,obsSource2:b,obsRouteText:connected?(validA&&validB?'CH 1 â†’ '+a+' Â· CH 2 â†’ '+b:(!validA&&!validB?'Assign OBS inputs to CH 1 and CH 2.':!validA?'Assign a valid OBS input to CH 1.':'Assign a valid OBS input to CH 2.')):'Connect to OBS and assign a source to each channel.'})}if(window.__goLiveRefreshOBSSelect)window.__goLiveRefreshOBSSelect()};
+window.__goLiveRefreshOBSSelect=function(){const s=document.getElementById('obsAssignment');if(!s)return;const c=window.goLiveMixer.state.sel,source=c===0?window.goLiveMixer.state.obsSource1:window.goLiveMixer.state.obsSource2;s.replaceChildren(new Option(hostCfg.obsInputs&&hostCfg.obsInputs.length?'Select OBS source':'Connect OBS first',''),...(hostCfg.obsInputs||[]).map(n=>new Option(n,n)));s.value=source||''};
+window.__goLiveAudioInputs(hostCfg.audioInputs||[]);
+</script>
+
+</body>
+</html>
+
