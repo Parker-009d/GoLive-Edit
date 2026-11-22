@@ -8,7 +8,7 @@ on:
       - '.github/workflows/windows-multichannel.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -65,6 +65,25 @@ jobs:
             if ($proc.MainWindowTitle -notlike '*Multichannel 24*') { throw "Unexpected window title: $($proc.MainWindowTitle)" }
           }
           finally { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force } }
+
+      - name: Publish direct EXE download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v0.3.69'
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag 'artifacts/GoLivEdit/GoLivEdit.exe' `
+              --repo $env:GITHUB_REPOSITORY `
+              --title 'GoLiv Edit 0.3.69 for Windows' `
+              --notes 'Compressed self-contained Windows x64 EXE.' `
+              --prerelease
+          } else {
+            gh release upload $tag 'artifacts/GoLivEdit/GoLivEdit.exe' `
+              --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the direct EXE release asset failed.' }
 
       - name: Package app ZIP
         shell: pwsh
