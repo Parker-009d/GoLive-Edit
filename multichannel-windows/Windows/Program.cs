@@ -757,7 +757,7 @@ internal sealed class ObsSocket
         var effectActive=fxList.Any(x=>Bool(x,"on")&&AtBool(x,"asg",channelIndex)&&At(x,"snd",channelIndex,-60)>-59.9&&Num(x,"ret",-60)>-59.9);
         var fxChunk=MakeChunk(fxList,channelIndex,g,gateOn,ArrayElements(dsp,"e"),eqOn);
         var vstEnabled=gateOn||eqOn||effectActive;
-            var vst=new {plugin_path=ResourcePath("GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
+            var vst=new {plugin_path=MixerWindow.ResourcePath("GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
         var signature=JsonSerializer.Serialize(new{compressor,compOn,vst,vstEnabled,bypass});
         if(lastFilterValues.GetValueOrDefault(source)==signature)return;lastFilterValues[source]=signature;
         foreach(var old in new[]{"GoLive Input Trim","GoLive VST FX","GoLive EQ","GoLive Noise Gate","GoLive Gate","GoLive 3-Band EQ","GoLive Main Limiter","GoLive Parametric EQ","GoLive 6-Band Parametric EQ"})
