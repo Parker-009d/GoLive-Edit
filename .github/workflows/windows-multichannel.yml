@@ -39,7 +39,7 @@ jobs:
           $encoded = Get-Content 'multichannel-windows/Windows/Resources/GoLive.ico.b64' -Raw
           [IO.File]::WriteAllBytes('multichannel-windows/Windows/Resources/GoLive.ico', [Convert]::FromBase64String($encoded))
 
-      - name: Publish the self-contained x64 app
+      - name: Publish the compressed single-file self-contained x64 app
         shell: pwsh
         run: >-
           dotnet publish multichannel-windows/Windows/GoLive.Windows.csproj
@@ -71,11 +71,12 @@ jobs:
         run: |
           $package = 'artifacts/package'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
-          Copy-Item 'artifacts/GoLivEdit/*' $package -Recurse -Force
+          Copy-Item 'artifacts/GoLivEdit/GoLivEdit.exe' $package -Force
           @'
-          GoLiv Edit Multichannel 24 â€” Windows x64 preview build
+          GoLiv Edit Multichannel 24 — Windows x64 preview build
 
-          Extract this folder and run GoLivEdit.exe.
+          Extract the downloaded ZIP, then run GoLivEdit.exe. The EXE contains
+          all GoLive Edit files and extracts its resources on first launch.
           WebView2 Runtime is required. Real audio-device and OBS behavior
           still requires verification on the target PC and audio hardware.
           '@ | Set-Content -Encoding utf8 "$package/INSTALL.txt"
