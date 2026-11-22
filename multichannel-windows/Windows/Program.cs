@@ -18,12 +18,33 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        MixerWindow.PrepareBundledResources();
         Application.Run(new MixerWindow());
     }
 }
 
 internal sealed class MixerWindow : Form
 {
+    private static readonly string ResourceDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GoLiveEdit", "Resources");
+    internal static string ResourcePath(string name) => Path.Combine(ResourceDirectory, name);
+
+    internal static void PrepareBundledResources()
+    {
+        var assembly = typeof(MixerWindow).Assembly;
+        var version = assembly.GetName().Version?.ToString() ?? "0";
+        var versionFile = Path.Combine(ResourceDirectory, ".version");
+        if (File.Exists(versionFile) && File.ReadAllText(versionFile) == version) return;
+        Directory.CreateDirectory(ResourceDirectory);
+        foreach (var name in new[] { "golive-edit-mixer.html", "phone-remote.html", "GoLive.ico", "GoLiveFX.dll" })
+        {
+            var resource = "GoLivEdit.Resources." + name;
+            using var input = assembly.GetManifestResourceStream(resource) ?? throw new InvalidOperationException("Missing bundled app resource: " + name);
+            using var output = File.Create(ResourcePath(name));
+            input.CopyTo(output);
+        }
+        File.WriteAllText(versionFile, version);
+    }
+
     private readonly WebView2 web = new() { Dock = DockStyle.Fill };
     private readonly MMDeviceEnumerator enumerator = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 50 };
@@ -82,7 +103,7 @@ internal sealed class MixerWindow : Form
         ClientSize = new Size(1420, 940);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.Black;
-        Icon = new Icon(Path.Combine(AppContext.BaseDirectory, "Resources", "GoLive.ico"));
+        Icon = new Icon(ResourcePath("GoLive.ico"));
         Controls.Add(web);
         Shown += async (_, _) => await InitializeMixerAsync();
         FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); spectrumTimer.Stop(); deviceTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); };
@@ -108,16 +129,16 @@ internal sealed class MixerWindow : Form
             code = pairingCode, ip = LanAddress(), url = $"http://{LanAddress()}:{PairPort}/",
             obsInputs = Array.Empty<string>(), obsSource1, obsSource2,
             obsSources = Enumerable.Range(0,24).Select(i => Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "ObsSource" + (i + 1), "") as string ?? "").ToArray(),
-            audioInputs = inputs.Select(x => x.FriendlyName).ToArray(), audioInputIndex = selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice),
+            audioInputs = inputs.Select(AudioDeviceLabel).ToArray(), audioInputIndex = selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice),
             audioChannelCount = selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels,
-            audioOutputs = outputs.Select(x => x.FriendlyName).ToArray(), audioOutputIndex = selectedOutput is null ? -1 : outputs.IndexOf(selectedOutput)
+            audioOutputs = outputs.Select(AudioDeviceLabel).ToArray(), audioOutputIndex = selectedOutput is null ? -1 : outputs.IndexOf(selectedOutput)
         };
         var configJson = JsonSerializer.Serialize(config);
         var bridge = $"window.__GO_LIVE_CONFIG__={configJson};window.webkit={{messageHandlers:new Proxy({{}},{{get:(_,name)=>({{postMessage:body=>window.chrome.webview.postMessage({{handler:String(name),body}})}})}})}};";
         await web.EnsureCoreWebView2Async();
         await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(bridge);
         web.CoreWebView2.WebMessageReceived += OnWebMessage;
-        var page = Path.Combine(AppContext.BaseDirectory, "Resources", "golive-edit-mixer.html");
+        var page = ResourcePath("golive-edit-mixer.html");
         web.Source = new Uri(page);
         StartRemoteServer();
         if (selectedDevice is not null) StartCapture(selectedDevice);
@@ -126,6 +147,15 @@ internal sealed class MixerWindow : Form
 
     private List<MMDevice> GetInputs() => enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
     private List<MMDevice> GetOutputs() => enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+
+    private static string AudioDeviceLabel(MMDevice device)
+    {
+        var name = device.FriendlyName?.Trim() ?? "Audio device";
+        var open = name.LastIndexOf('(');
+        if (open >= 0 && name.EndsWith(')') && string.IsNullOrWhiteSpace(name[(open + 1)..^1]))
+            name = name[..open].TrimEnd();
+        return string.IsNullOrWhiteSpace(name) ? "Audio device" : name;
+    }
 
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
@@ -284,7 +314,7 @@ internal sealed class MixerWindow : Form
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
         var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(x => x.FriendlyName).ToArray(), index, channels, outputs = outputs.Select(x => x.FriendlyName).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
+        var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
 
@@ -468,7 +498,7 @@ internal sealed class MixerWindow : Form
         {
             var format = new WaveFormat(capture.WaveFormat.SampleRate, 24, 2);
             lock (recordLock) writer = new WaveFileWriter(dialog.FileName, format);
-            _ = SetRecordingStatusAsync("Recording Â· " + Path.GetFileName(dialog.FileName), true, Path.GetFileName(dialog.FileName));
+            _ = SetRecordingStatusAsync("Recording · " + Path.GetFileName(dialog.FileName), true, Path.GetFileName(dialog.FileName));
         }
         catch (Exception ex) { _ = SetRecordingStatusAsync("Could not start recording: " + ex.Message, false, ""); }
     }
@@ -578,7 +608,7 @@ internal sealed class MixerWindow : Form
         {
             var path = c.Request.Url?.AbsolutePath ?? "/"; var token = c.Request.Headers["Authorization"]?.Replace("Bearer ", "") ?? "";
             object response; int status = 200;
-            if (path == "/" && c.Request.HttpMethod == "GET") { var page = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Resources", "phone-remote.html")); c.Response.ContentType = "text/html; charset=utf-8"; c.Response.ContentLength64 = page.Length; await c.Response.OutputStream.WriteAsync(page); c.Response.Close(); return; }
+            if (path == "/" && c.Request.HttpMethod == "GET") { var page = await File.ReadAllBytesAsync(ResourcePath("phone-remote.html")); c.Response.ContentType = "text/html; charset=utf-8"; c.Response.ContentLength64 = page.Length; await c.Response.OutputStream.WriteAsync(page); c.Response.Close(); return; }
             if (path == "/api/pair" && c.Request.HttpMethod == "POST")
             {
                 using var doc = await JsonDocument.ParseAsync(c.Request.InputStream); var code = doc.RootElement.GetProperty("code").GetString() ?? "";
@@ -642,7 +672,7 @@ internal sealed class ObsSocket
     public event Action<string[]>? InputsReceived;
     public async Task ConnectAsync(string h,int p,string password)
     {
-        await DisconnectAsync(); host=h;port=p;StatusChanged?.Invoke("Connecting to OBSâ€¦",false); socket=new ClientWebSocket(); await socket.ConnectAsync(new Uri($"ws://{host}:{port}"),CancellationToken.None);
+        await DisconnectAsync(); host=h;port=p;StatusChanged?.Invoke("Connecting to OBS…",false); socket=new ClientWebSocket(); await socket.ConnectAsync(new Uri($"ws://{host}:{port}"),CancellationToken.None);
         var buffer=new byte[65536]; var r=await socket.ReceiveAsync(buffer,CancellationToken.None); using var hello=JsonDocument.Parse(buffer.AsMemory(0,r.Count));
         var d=hello.RootElement.GetProperty("d"); var identify=new Dictionary<string,object>{{"rpcVersion",1}};
         if(d.TryGetProperty("authentication",out var auth)){var salt=auth.GetProperty("salt").GetString()!;var challenge=auth.GetProperty("challenge").GetString()!;var secret=Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password+salt)));identify["authentication"]=Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(secret+challenge)));}
@@ -727,7 +757,7 @@ internal sealed class ObsSocket
         var effectActive=fxList.Any(x=>Bool(x,"on")&&AtBool(x,"asg",channelIndex)&&At(x,"snd",channelIndex,-60)>-59.9&&Num(x,"ret",-60)>-59.9);
         var fxChunk=MakeChunk(fxList,channelIndex,g,gateOn,ArrayElements(dsp,"e"),eqOn);
         var vstEnabled=gateOn||eqOn||effectActive;
-        var vst=new {plugin_path=Path.Combine(AppContext.BaseDirectory,"Resources","GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
+            var vst=new {plugin_path=ResourcePath("GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
         var signature=JsonSerializer.Serialize(new{compressor,compOn,vst,vstEnabled,bypass});
         if(lastFilterValues.GetValueOrDefault(source)==signature)return;lastFilterValues[source]=signature;
         foreach(var old in new[]{"GoLive Input Trim","GoLive VST FX","GoLive EQ","GoLive Noise Gate","GoLive Gate","GoLive 3-Band EQ","GoLive Main Limiter","GoLive Parametric EQ","GoLive 6-Band Parametric EQ"})
