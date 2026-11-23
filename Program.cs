@@ -197,6 +197,9 @@ internal sealed class MixerWindow : Form
                 case "goLiveRefreshAudioDevices":
                     await PublishAudioDevicesAsync();
                     break;
+                case "goLiveResizeWindow":
+                    await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetScale && window.__goLiveSetScale({JsonSerializer.Serialize(body.GetProperty("preset").GetString() ?? "standard")})");
+                    break;
                 case "goLivePersistScene":
                     Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "LastScene", body.GetString() ?? "{}");
                     break;
@@ -534,8 +537,9 @@ internal sealed class MixerWindow : Form
         if (web.CoreWebView2 is null) return;
         double[] l; bool[] c; double sr; int ch;
         lock (audioLock) { l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount; }
+        var fxLevels = localFX.ReadMeters();
         var info = new { sampleRate = sr, channels = ch, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
-        var payload = JsonSerializer.Serialize(new { levels = l, info });
+        var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
         try { await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})"); } catch { }
     }
 
@@ -757,7 +761,7 @@ internal sealed class ObsSocket
         var effectActive=fxList.Any(x=>Bool(x,"on")&&AtBool(x,"asg",channelIndex)&&At(x,"snd",channelIndex,-60)>-59.9&&Num(x,"ret",-60)>-59.9);
         var fxChunk=MakeChunk(fxList,channelIndex,g,gateOn,ArrayElements(dsp,"e"),eqOn);
         var vstEnabled=gateOn||eqOn||effectActive;
-            var vst=new {plugin_path=ResourcePath("GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
+            var vst=new {plugin_path=MixerWindow.ResourcePath("GoLiveFX.dll"),chunk_data=Convert.ToBase64String(fxChunk),chunk_hash=""};
         var signature=JsonSerializer.Serialize(new{compressor,compOn,vst,vstEnabled,bypass});
         if(lastFilterValues.GetValueOrDefault(source)==signature)return;lastFilterValues[source]=signature;
         foreach(var old in new[]{"GoLive Input Trim","GoLive VST FX","GoLive EQ","GoLive Noise Gate","GoLive Gate","GoLive 3-Band EQ","GoLive Main Limiter","GoLive Parametric EQ","GoLive 6-Band Parametric EQ"})
