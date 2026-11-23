@@ -29,9 +29,11 @@ jobs:
         shell: pwsh
         run: |
           $source = 'multichannel-windows/vst-plugin/GoLiveFX.cpp'
-          $plugin = 'multichannel-windows/Windows/Resources/GoLiveFX.dll'
+          $plugin = Join-Path $PWD 'GoLiveFX.dll'
+          $resource = Join-Path $PWD 'multichannel-windows/Windows/Resources/GoLiveFX.dll'
           cl.exe /nologo /std:c++17 /O2 /LD $source /link "/OUT:$plugin" /EXPORT:VSTPluginMain
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
+          Copy-Item $plugin $resource -Force
 
       - name: Restore the app icon
         shell: pwsh
@@ -106,4 +108,5 @@ jobs:
           name: GoLivEdit-Multichannel24-Windows-x64
           path: artifacts/GoLivEdit-Multichannel24-Windows-x64.zip
           if-no-files-found: error
+
 
