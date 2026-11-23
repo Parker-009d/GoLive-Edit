@@ -322,6 +322,11 @@ internal sealed class MixerWindow : Form
         if (web.CoreWebView2 is null) return Task.CompletedTask;
         var inputs = GetInputs();
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
+        if (selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError))
+        {
+            foreach (var input in inputs) try { input.Dispose(); } catch { }
+            return Task.CompletedTask;
+        }
         var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
         var dropped = Interlocked.Read(ref captureDroppedPackets);
