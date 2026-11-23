@@ -262,7 +262,8 @@ internal sealed class MixerWindow : Form
                 }
                 catch (OperationCanceledException) { }
             });
-            capture = new WasapiCapture(device, true, 20);
+            // Use periodic polling: some USB/interface drivers signal WASAPI events unreliably and stop advancing meter callbacks.
+            capture = new WasapiCapture(device, false, 20);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             captureFormat = $"{capture.WaveFormat.SampleRate} Hz · {capture.WaveFormat.Channels} ch · {capture.WaveFormat.BitsPerSample}-bit {capture.WaveFormat.Encoding}";
             var activeCapture = capture;
