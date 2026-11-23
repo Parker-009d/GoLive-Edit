@@ -1,0 +1,109 @@
+name: GoLiv Edit Multichannel 24 for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'multichannel-windows/**'
+      - '.github/workflows/windows-multichannel.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build the OBS processor
+        shell: pwsh
+        run: |
+          $source = 'multichannel-windows/vst-plugin/GoLiveFX.cpp'
+          $plugin = 'multichannel-windows/Windows/Resources/GoLiveFX.dll'
+          cl.exe /nologo /std:c++17 /O2 /LD $source /link "/OUT:$plugin" /EXPORT:VSTPluginMain
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
+
+      - name: Restore the app icon
+        shell: pwsh
+        run: |
+          $encoded = Get-Content 'multichannel-windows/Windows/Resources/GoLive.ico.b64' -Raw
+          [IO.File]::WriteAllBytes('multichannel-windows/Windows/Resources/GoLive.ico', [Convert]::FromBase64String($encoded))
+
+      - name: Publish the compressed single-file self-contained x64 app
+        shell: pwsh
+        run: >-
+          dotnet publish multichannel-windows/Windows/GoLive.Windows.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --output artifacts/GoLivEdit
+
+      - name: Launch-check the Windows app
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD 'artifacts/GoLivEdit/GoLivEdit.exe'
+          if (-not (Test-Path $app)) { throw 'Published GoLivEdit.exe is missing.' }
+          $proc = Start-Process -FilePath $app -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(45)
+            do {
+              Start-Sleep -Milliseconds 500
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "App exited during launch (code $($proc.ExitCode))." }
+            } while ($proc.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline)
+            if ($proc.MainWindowHandle -eq 0) { throw 'App did not show a mixer window within 45 seconds.' }
+            if ($proc.MainWindowTitle -notlike '*Multichannel 24*') { throw "Unexpected window title: $($proc.MainWindowTitle)" }
+          }
+          finally { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force } }
+
+      - name: Publish direct EXE download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v0.3.70'
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag 'artifacts/GoLivEdit/GoLivEdit.exe' `
+              --repo $env:GITHUB_REPOSITORY `
+              --title 'GoLiv Edit 0.3.70 for Windows' `
+              --notes 'Compressed self-contained Windows x64 EXE.' `
+              --prerelease
+          } else {
+            gh release upload $tag 'artifacts/GoLivEdit/GoLivEdit.exe' `
+              --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the direct EXE release asset failed.' }
+
+      - name: Package app ZIP
+        shell: pwsh
+        run: |
+          $package = 'artifacts/package'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item 'artifacts/GoLivEdit/GoLivEdit.exe' $package -Force
+          @'
+          GoLiv Edit Multichannel 24 — Windows x64 preview build
+
+          Extract the downloaded ZIP, then run GoLivEdit.exe. The EXE contains
+          all GoLive Edit files and extracts its resources on first launch.
+          WebView2 Runtime is required. Real audio-device and OBS behavior
+          still requires verification on the target PC and audio hardware.
+          '@ | Set-Content -Encoding utf8 "$package/INSTALL.txt"
+          Compress-Archive -Path "$package/*" -DestinationPath 'artifacts/GoLivEdit-Multichannel24-Windows-x64.zip' -CompressionLevel Optimal
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoLivEdit-Multichannel24-Windows-x64
+          path: artifacts/GoLivEdit-Multichannel24-Windows-x64.zip
+          if-no-files-found: error
+
