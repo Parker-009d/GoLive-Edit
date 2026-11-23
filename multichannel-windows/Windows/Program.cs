@@ -385,7 +385,7 @@ internal sealed class MixerWindow : Form
                     try { attempt?.Dispose(); } catch { }
                 }
             }
-            if (TryStartWindowsWaveInFallback(device, generation, queue, out var fallbackFailure)) return;
+            if (TryStartWindowsWaveInFallback(device, mixFormat, generation, queue, out var fallbackFailure)) return;
             throw new InvalidOperationException(
                 $"WASAPI rejected the Fast Track format ({lastError?.Message ?? "unknown WASAPI error"}). {fallbackFailure}",
                 lastError);
@@ -393,7 +393,7 @@ internal sealed class MixerWindow : Form
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
     }
 
-    private bool TryStartWindowsWaveInFallback(MMDevice device, int generation, Channel<CapturePacket> queue, out string failure)
+    private bool TryStartWindowsWaveInFallback(MMDevice device, WaveFormat mixFormat, int generation, Channel<CapturePacket> queue, out string failure)
     {
         failure = "";
         try
@@ -430,8 +430,19 @@ internal sealed class MixerWindow : Form
             }
 
             Exception? lastError = null;
+            var formats = new List<WaveFormat> { mixFormat };
+            var rates = new[] { mixFormat.SampleRate, 44100, 48000, 88200, 96000 }.Distinct();
+            var channels = new[] { mixFormat.Channels, 2, 1 }.Where(value => value is >= 1 and <= 24).Distinct();
+            foreach (var rate in rates)
+            foreach (var channelCount in channels)
+            {
+                formats.Add(new WaveFormat(rate, 24, channelCount));
+                formats.Add(new WaveFormat(rate, 16, channelCount));
+                formats.Add(new WaveFormat(rate, 32, channelCount));
+                formats.Add(WaveFormat.CreateIeeeFloatWaveFormat(rate, channelCount));
+            }
             foreach (var input in matchingDevices)
-            foreach (var format in new[] { new WaveFormat(44100, 16, 2), new WaveFormat(48000, 16, 2), new WaveFormat(44100, 16, 1), new WaveFormat(48000, 16, 1) })
+            foreach (var format in formats)
             {
                 WaveInEvent? attempt = null;
                 try
