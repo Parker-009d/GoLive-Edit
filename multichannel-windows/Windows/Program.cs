@@ -335,27 +335,61 @@ internal sealed class MixerWindow : Form
         try
         {
             var (generation, queue) = BeginCaptureQueue();
-            // Use periodic polling: some USB/interface drivers signal WASAPI events unreliably and stop advancing meter callbacks.
-            capture = new WasapiCapture(device, false, 20);
-            sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
-            captureFormat = $"{capture.WaveFormat.SampleRate} Hz · {capture.WaveFormat.Channels} ch · {capture.WaveFormat.BitsPerSample}-bit {capture.WaveFormat.Encoding}";
-            var activeCapture = capture;
-            activeCapture.DataAvailable += (_, e) =>
+            WaveFormat mixFormat;
+            using (var audioClient = device.AudioClient) mixFormat = audioClient.MixFormat;
+
+            Exception? lastError = null;
+            foreach (var format in GetWasapiCaptureFormats(mixFormat))
             {
-                var length = e.BytesRecorded;
-                if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
-                Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
-                if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
-                var copy = new byte[length];
-                Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
-                Interlocked.Increment(ref captureBufferCount);
-                if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
-            };
-            activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
-            capture.StartRecording();
-            if (selectedOutput is not null) StartMonitorOutput();
+                WasapiCapture? attempt = null;
+                try
+                {
+                    // Some interface drivers advertise a mix format that WASAPI rejects for capture.
+                    // Retry standard shared-mode formats before reporting a device error.
+                    attempt = new WasapiCapture(device, false, 100) { WaveFormat = format };
+                    var activeCapture = attempt;
+                    activeCapture.DataAvailable += (_, e) =>
+                    {
+                        var length = e.BytesRecorded;
+                        if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+                        Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
+                        var copy = new byte[length];
+                        Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
+                        Interlocked.Increment(ref captureBufferCount);
+                        if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                    };
+                    activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
+                    activeCapture.StartRecording();
+                    capture = activeCapture;
+                    sampleRate = format.SampleRate; channelCount = format.Channels;
+                    captureFormat = $"WASAPI · {format.SampleRate} Hz · {format.Channels} ch · {format.BitsPerSample}-bit {format.Encoding}";
+                    if (selectedOutput is not null) StartMonitorOutput();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    try { attempt?.Dispose(); } catch { }
+                }
+            }
+            throw lastError ?? new InvalidOperationException("WASAPI could not open this input format.");
         }
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
+    }
+
+    private static IEnumerable<WaveFormat> GetWasapiCaptureFormats(WaveFormat mixFormat)
+    {
+        yield return mixFormat;
+        var rates = new[] { mixFormat.SampleRate, 48000, 44100, 96000 }.Distinct();
+        var channels = new[] { mixFormat.Channels, 2, 1 }.Where(c => c is >= 1 and <= 24).Distinct();
+        foreach (var rate in rates)
+        foreach (var channelCount in channels)
+        {
+            yield return WaveFormat.CreateIeeeFloatWaveFormat(rate, channelCount);
+            yield return new WaveFormat(rate, 24, channelCount);
+            yield return new WaveFormat(rate, 16, channelCount);
+        }
     }
 
     private (int Generation, Channel<CapturePacket> Queue) BeginCaptureQueue()
