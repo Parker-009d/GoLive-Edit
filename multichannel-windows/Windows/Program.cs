@@ -50,7 +50,7 @@ internal sealed class MixerWindow : Form
     // Mixer state only needs to reach the remote/OBS bridge a few times per second.
     // Polling the full 24-channel state at 10 Hz competes with WebView meter rendering.
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
-    private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 40 };
+    private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 20 };
     private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
@@ -321,7 +321,7 @@ internal sealed class MixerWindow : Form
         {
             using (var audioClient = selectedOutput.AudioClient) monitorSampleRate = audioClient.MixFormat.SampleRate;
             monitorResampler.Reset();
-            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(120) };
+            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(80) };
             monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 20);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
