@@ -47,7 +47,8 @@ internal sealed class MixerWindow : Form
 
     private readonly WebView2 web = new() { Dock = DockStyle.Fill };
     private readonly MMDeviceEnumerator enumerator = new();
-    // Full mixer-state snapshots go to the remote/OBS bridge; polling at 10 Hz competes with WebView meter rendering.
+    // Mixer state only needs to reach the remote/OBS bridge a few times per second.
+    // Polling the full 24-channel state at 10 Hz competes with WebView meter rendering.
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
     private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
@@ -75,7 +76,8 @@ internal sealed class MixerWindow : Form
     private string remoteState = "{\"ch\":[],\"main\":{}}";
     private readonly float[][] spectrumRing = Enumerable.Range(0, 24).Select(_ => new float[2048]).ToArray();
     private static readonly double[] SpectrumWindow = Enumerable.Range(0, 2048).Select(i => .5 - .5 * Math.Cos(2 * Math.PI * i / 2047)).ToArray();
-    private int spectrumBusy, meterPublishBusy, statePublishBusy, captureGeneration;
+    private int spectrumBusy;
+    private int meterPublishBusy, statePublishBusy, devicePublishBusy, captureGeneration;
     private long captureBufferCount, captureDroppedPackets, captureLastBufferTicks;
     private int spectrumIndex;
     private int spectrumFilled;
@@ -91,6 +93,7 @@ internal sealed class MixerWindow : Form
     private volatile string captureFormat = "";
     private string monitorNotice = "";
     private string selectedUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", "") as string ?? "";
+    private string[] inputDeviceIds = [], outputDeviceIds = [];
     private readonly ObsSocket obs = new();
     private string pairingCode = NewPairCode();
     private string obsSource1 = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "ObsSource1", "") as string ?? "";
@@ -111,7 +114,7 @@ internal sealed class MixerWindow : Form
         Icon = new Icon(ResourcePath("GoLive.ico"));
         Controls.Add(web);
         Shown += async (_, _) => await InitializeMixerAsync();
-        FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); spectrumTimer.Stop(); deviceTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); };
+        FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); spectrumTimer.Stop(); deviceTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); selectedDevice?.Dispose(); selectedOutput?.Dispose(); enumerator.Dispose(); };
         stateTimer.Tick += async (_, _) => await PublishMixerStateAsync();
         deviceTimer.Tick += async (_, _) => await PublishAudioDevicesAsync();
         meterTimer.Tick += async (_, _) => await PublishMetersAsync();
@@ -123,21 +126,28 @@ internal sealed class MixerWindow : Form
     private async Task InitializeMixerAsync()
     {
         var inputs = GetInputs();
+        // If the saved endpoint is temporarily absent, do not silently switch to a
+        // different microphone/interface. Keep its ID so it can reconnect in place.
         var persisted = inputs.FirstOrDefault(x => x.ID == selectedUid) ?? (string.IsNullOrEmpty(selectedUid) ? inputs.FirstOrDefault() : null);
         selectedDevice = persisted;
         if (selectedDevice is not null) selectedUid = selectedDevice.ID;
         var outputs = GetOutputs();
         var savedOutputUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", "") as string ?? "";
         selectedOutput = outputs.FirstOrDefault(x => x.ID == savedOutputUid);
+        inputDeviceIds = inputs.Select(x => x.ID).ToArray();
+        outputDeviceIds = outputs.Select(x => x.ID).ToArray();
+        var inputChannels = 0;
+        if (selectedDevice is not null) { using var audioClient = selectedDevice.AudioClient; inputChannels = audioClient.MixFormat.Channels; }
         var config = new
         {
             code = pairingCode, ip = LanAddress(), url = $"http://{LanAddress()}:{PairPort}/",
             obsInputs = Array.Empty<string>(), obsSource1, obsSource2,
             obsSources = Enumerable.Range(0,24).Select(i => Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "ObsSource" + (i + 1), "") as string ?? "").ToArray(),
             audioInputs = inputs.Select(AudioDeviceLabel).ToArray(), audioInputIndex = selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice),
-            audioChannelCount = selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels,
+            audioChannelCount = inputChannels,
             audioOutputs = outputs.Select(AudioDeviceLabel).ToArray(), audioOutputIndex = selectedOutput is null ? -1 : outputs.IndexOf(selectedOutput)
         };
+        DisposeDevices(inputs, selectedDevice); DisposeDevices(outputs, selectedOutput);
         var configJson = JsonSerializer.Serialize(config);
         var bridge = $"window.__GO_LIVE_CONFIG__={configJson};window.webkit={{messageHandlers:new Proxy({{}},{{get:(_,name)=>({{postMessage:body=>window.chrome.webview.postMessage({{handler:String(name),body}})}})}})}};";
         await web.EnsureCoreWebView2Async();
@@ -152,6 +162,11 @@ internal sealed class MixerWindow : Form
 
     private List<MMDevice> GetInputs() => enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
     private List<MMDevice> GetOutputs() => enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+
+    private static void DisposeDevices(IEnumerable<MMDevice> devices, MMDevice? keep = null)
+    {
+        foreach (var device in devices) if (!ReferenceEquals(device, keep)) try { device.Dispose(); } catch { }
+    }
 
     private static string AudioDeviceLabel(MMDevice device)
     {
@@ -174,8 +189,12 @@ internal sealed class MixerWindow : Form
             {
                 case "goLiveAudioDevice":
                     var index = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("index", out var inputIndexValue) ? inputIndexValue.GetInt32() : body.GetInt32(); var inputs = GetInputs();
-                    if (index >= 0 && index < inputs.Count) { selectedDevice = inputs[index]; selectedUid = selectedDevice.ID; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", selectedUid); StartCapture(selectedDevice); await PublishAudioDevicesAsync(); }
-                    else if (index == -1) { selectedDevice = null; StopCapture(); await PublishAudioDevicesAsync(); }
+                    var inputId = index >= 0 && index < inputDeviceIds.Length ? inputDeviceIds[index] : null;
+                    var nextInput = inputId is null ? null : inputs.FirstOrDefault(x => x.ID == inputId);
+                    if (index >= 0 && nextInput is not null) { var previous = selectedDevice; selectedDevice = nextInput; selectedUid = selectedDevice.ID; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", selectedUid); StartCapture(selectedDevice); if (!ReferenceEquals(previous, selectedDevice)) previous?.Dispose(); await PublishAudioDevicesAsync(); }
+                    else if (index == -1) { var previous = selectedDevice; selectedDevice = null; selectedUid = ""; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", ""); StopCapture(); previous?.Dispose(); await PublishAudioDevicesAsync(); }
+                    else await PublishAudioDevicesAsync();
+                    DisposeDevices(inputs, selectedDevice);
                     break;
                 case "goLiveRecordingControl":
                     if (body.GetProperty("action").GetString() == "stop") StopRecording(); else BeginRecording();
@@ -194,10 +213,11 @@ internal sealed class MixerWindow : Form
                 case "goLiveAudioOutput":
                     var outputIndex = body.GetInt32();
                     var outputs = GetOutputs();
-                    selectedOutput = outputIndex >= 0 && outputIndex < outputs.Count ? outputs[outputIndex] : null;
-                    Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", selectedOutput?.ID ?? "");
-                    StartMonitorOutput();
+                    var outputId = outputIndex >= 0 && outputIndex < outputDeviceIds.Length ? outputDeviceIds[outputIndex] : null;
+                    var nextOutput = outputId is null ? null : outputs.FirstOrDefault(x => x.ID == outputId);
+                    if (outputIndex == -1 || nextOutput is not null) { var previous = selectedOutput; selectedOutput = nextOutput; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", selectedOutput?.ID ?? ""); StartMonitorOutput(); if (!ReferenceEquals(previous, selectedOutput)) previous?.Dispose(); }
                     await PublishAudioDevicesAsync();
+                    DisposeDevices(outputs, selectedOutput);
                     break;
                 case "goLiveRefreshAudioDevices":
                     await PublishAudioDevicesAsync();
@@ -245,7 +265,8 @@ internal sealed class MixerWindow : Form
             var generation = Volatile.Read(ref captureGeneration);
             captureHasData = false; captureHasSignal = false; captureError = "";
             Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
-            Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0); Interlocked.Exchange(ref captureLastBufferTicks, 0);
+            Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
+            Interlocked.Exchange(ref captureLastBufferTicks, 0);
             // Keep the software path bounded to a short realtime cushion. A large
             // queue makes monitor audio play stale buffers after a CPU/UI stall.
             captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
@@ -274,7 +295,6 @@ internal sealed class MixerWindow : Form
                 if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                 Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
                 if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
-                UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat);
                 var copy = new byte[length];
                 Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
                 Interlocked.Increment(ref captureBufferCount);
@@ -299,7 +319,7 @@ internal sealed class MixerWindow : Form
         }
         try
         {
-            monitorSampleRate = selectedOutput.AudioClient.MixFormat.SampleRate;
+            using (var audioClient = selectedOutput.AudioClient) monitorSampleRate = audioClient.MixFormat.SampleRate;
             monitorResampler.Reset();
             monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(120) };
             monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 20);
@@ -327,23 +347,34 @@ internal sealed class MixerWindow : Form
         lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
     }
 
-    private Task PublishAudioDevicesAsync()
+    private async Task PublishAudioDevicesAsync()
     {
-        if (web.CoreWebView2 is null) return Task.CompletedTask;
-        var inputs = GetInputs();
-        var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
-        if (selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError))
+        if (web.CoreWebView2 is null || Interlocked.Exchange(ref devicePublishBusy, 1) != 0) return;
+        List<MMDevice>? inputs = null; List<MMDevice>? outputs = null;
+        try
         {
-            foreach (var input in inputs) try { input.Dispose(); } catch { }
-            return Task.CompletedTask;
+            inputs = GetInputs(); outputs = GetOutputs();
+            var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
+            // Hold the last published selection during a brief Windows endpoint-enumeration gap.
+            // A real capture stop/error will still publish immediately and expose the failure.
+            if ((selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
+                (selectedOutput is not null && outputs.All(x => x.ID != selectedOutput.ID) && string.IsNullOrEmpty(captureError))) return;
+            var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : 0;
+            var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
+            inputDeviceIds = inputs.Select(x => x.ID).ToArray(); outputDeviceIds = outputs.Select(x => x.ID).ToArray();
+            var dropped = Interlocked.Read(ref captureDroppedPackets);
+            var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
+            var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
+            var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
+            await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
         }
-        var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
-        var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var dropped = Interlocked.Read(ref captureDroppedPackets);
-        var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
-        var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
-        return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
+        catch { }
+        finally
+        {
+            if (inputs is not null) DisposeDevices(inputs);
+            if (outputs is not null) DisposeDevices(outputs);
+            Volatile.Write(ref devicePublishBusy, 0);
+        }
     }
 
     private void CaptureAudio(byte[] bytes, int length, WaveFormat? format, int generation)
@@ -354,16 +385,13 @@ internal sealed class MixerWindow : Form
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
         {
             var offset = frame * format.BlockAlign + c * (format.BitsPerSample / 8);
-            var isFloat32 = format.BitsPerSample == 32 && (format.Encoding == WaveFormatEncoding.IeeeFloat || (format is WaveFormatExtensible extensible && extensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")));
-            float v = isFloat32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
-            {
-                16 => BitConverter.ToInt16(bytes, offset) / 32768f,
-                24 => Read24(bytes, offset) / 8388608f,
-                32 => BitConverter.ToInt32(bytes, offset) / 2147483648f,
-                _ => 0
-            };
+            float v = ReadCaptureSample(bytes, offset, format);
             samples[frame * channels + c] = v;
         }
+        // Meter the exact decoded samples used by recording and playback. Measuring
+        // the driver callback separately can disagree with the audio that reaches
+        // CaptureAudio when a driver reuses or mutates its callback buffer.
+        UpdateCaptureMeters(samples, frames, channels, generation);
         if (generation != Volatile.Read(ref captureGeneration)) return;
         JsonElement state; lock (audioLock) state = mixerState;
         var ch = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("ch", out var cs) ? cs : default;
@@ -427,27 +455,19 @@ internal sealed class MixerWindow : Form
         try { var monitorBytes = format.SampleRate == monitorSampleRate ? output : monitorResampler.Process(output, frames, format.SampleRate, monitorSampleRate); monitorBuffer?.AddSamples(monitorBytes, 0, monitorBytes.Length); } catch { }
     }
 
-    private void UpdateCaptureMeters(byte[] bytes, int length, WaveFormat format)
+    private void UpdateCaptureMeters(float[] samples, int frames, int sourceChannels, int generation)
     {
-        if (format.BlockAlign <= 0) return;
-        var frames = length / format.BlockAlign;
-        var channels = Math.Min(24, format.Channels);
-        if (frames <= 0 || channels <= 0) return;
+        var channels = Math.Min(24, sourceChannels);
+        if (frames <= 0 || channels <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
         Span<double> peak = stackalloc double[24];
         Span<double> sum = stackalloc double[24];
-        peak.Clear(); sum.Clear();
+        peak.Clear();
+        sum.Clear();
         for (var frame = 0; frame < frames; frame++)
             for (var channel = 0; channel < channels; channel++)
             {
-                var offset = frame * format.BlockAlign + channel * (format.BitsPerSample / 8);
-                var isFloat32 = format.BitsPerSample == 32 && (format.Encoding == WaveFormatEncoding.IeeeFloat || (format is WaveFormatExtensible extensible && extensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")));
-                var sample = isFloat32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
-                {
-                    16 => BitConverter.ToInt16(bytes, offset) / 32768f,
-                    24 => Read24(bytes, offset) / 8388608f,
-                    32 => BitConverter.ToInt32(bytes, offset) / 2147483648f,
-                    _ => 0
-                };
+                var sample = samples[frame * sourceChannels + channel];
+                if (!float.IsFinite(sample)) continue;
                 var magnitude = Math.Abs(sample);
                 if (magnitude > peak[channel]) peak[channel] = magnitude;
                 sum[channel] += sample * sample;
@@ -455,16 +475,32 @@ internal sealed class MixerWindow : Form
         var now = DateTime.UtcNow;
         lock (audioLock)
         {
+            if (generation != Volatile.Read(ref captureGeneration)) return;
             Array.Fill(levels, -90d);
             for (var channel = 0; channel < channels; channel++)
             {
-                levels[channel] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
+                levels[channel] = Math.Max(-90, Math.Max(
+                    20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))),
+                    20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
                 if (levels[channel] > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
             }
             Interlocked.Exchange(ref capturePeakHundredthsDb, (long)Math.Round((channels > 0 ? levels.Take(channels).Max() : -90) * 100));
             for (var channel = 0; channel < clips.Length; channel++) clips[channel] = now < clipUntil[channel];
         }
+    }
+
+    private static float ReadCaptureSample(byte[] bytes, int offset, WaveFormat format)
+    {
+        var isFloat32 = format.BitsPerSample == 32 && (format.Encoding == WaveFormatEncoding.IeeeFloat ||
+            (format is WaveFormatExtensible extensible && extensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")));
+        return isFloat32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
+        {
+            16 => BitConverter.ToInt16(bytes, offset) / 32768f,
+            24 => Read24(bytes, offset) / 8388608f,
+            32 => BitConverter.ToInt32(bytes, offset) / 2147483648f,
+            _ => 0
+        };
     }
 
     private sealed class StreamingPcm24Resampler
@@ -594,8 +630,10 @@ internal sealed class MixerWindow : Form
     private async Task PublishMetersAsync()
     {
         if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
-        double[] l; bool[] c; double sr; int ch;
-        var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
+        try
+        {
+            double[] l; bool[] c; double sr; int ch;
+            var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
             var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(300).Ticks;
             lock (audioLock)
             {
@@ -607,10 +645,11 @@ internal sealed class MixerWindow : Form
                 }
                 l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
             }
-        var fxLevels = localFX.ReadMeters();
-        var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
-        var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
-        try { await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels(${payload})"); }
+            var fxLevels = localFX.ReadMeters();
+            var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
+            var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
+            if (web.CoreWebView2 is not null) await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
+        }
         catch { }
         finally { Volatile.Write(ref meterPublishBusy, 0); }
     }
@@ -888,5 +927,4 @@ internal sealed class ObsSocket
     private static double AtIndex(double[] values,int i,double d)=>values.Length>i?values[i]:d;
     private static JsonElement[] ArrayElements(JsonElement e,string k)=>e.ValueKind==JsonValueKind.Object&&e.TryGetProperty(k,out var v)&&v.ValueKind==JsonValueKind.Array?v.EnumerateArray().Select(x=>x.Clone()).ToArray():[];
 }
-
 
