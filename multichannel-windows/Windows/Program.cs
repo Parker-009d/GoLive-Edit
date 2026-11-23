@@ -112,8 +112,8 @@ internal sealed class MixerWindow : Form
 
     private sealed class WasapiCaptureWithoutAutoConvert : WasapiCapture
     {
-        public WasapiCaptureWithoutAutoConvert(MMDevice device, int bufferMilliseconds)
-            : base(device, false, bufferMilliseconds) { }
+        public WasapiCaptureWithoutAutoConvert(MMDevice device, int bufferMilliseconds, bool useEventSync = false)
+            : base(device, useEventSync, bufferMilliseconds) { }
 
         protected override AudioClientStreamFlags GetAudioClientStreamFlags() => (AudioClientStreamFlags)0;
     }
@@ -395,12 +395,69 @@ internal sealed class MixerWindow : Form
                     try { attempt?.Dispose(); } catch { }
                 }
             }
+            if (TryStartWasapiExclusiveCapture(device, generation, queue, out var exclusiveFailure)) return;
             if (TryStartWindowsWaveInFallback(device, mixFormat, generation, queue, out var fallbackFailure)) return;
             throw new InvalidOperationException(
-                $"WASAPI rejected the Fast Track format ({lastError?.Message ?? "unknown WASAPI error"}). {fallbackFailure}",
+                $"WASAPI rejected the Fast Track format ({lastError?.Message ?? "unknown WASAPI error"}). {exclusiveFailure} {fallbackFailure}",
                 lastError);
         }
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
+    }
+
+    private bool TryStartWasapiExclusiveCapture(MMDevice device, int generation, Channel<CapturePacket> queue, out string failure)
+    {
+        failure = "";
+        // The Fast Track Pro panel exposes 48 kHz / 24-bit analog capture. Its old
+        // WDM driver rejects the shared-mode formats above, so try the hardware format
+        // directly in WASAPI exclusive mode before giving up to legacy WaveIn.
+        var formats = new[]
+        {
+            new WaveFormat(48000, 24, 2), new WaveFormat(44100, 24, 2),
+            new WaveFormat(48000, 16, 2), new WaveFormat(44100, 16, 2),
+            new WaveFormat(48000, 32, 2), new WaveFormat(44100, 32, 2),
+            new WaveFormat(48000, 24, 1), new WaveFormat(44100, 24, 1),
+            new WaveFormat(48000, 16, 1), new WaveFormat(44100, 16, 1)
+        };
+        Exception? lastError = null;
+        foreach (var format in formats)
+        {
+            WasapiCapture? attempt = null;
+            try
+            {
+                attempt = new WasapiCaptureWithoutAutoConvert(device, 40, useEventSync: true)
+                {
+                    ShareMode = AudioClientShareMode.Exclusive,
+                    WaveFormat = format
+                };
+                var activeCapture = attempt;
+                activeCapture.DataAvailable += (_, e) =>
+                {
+                    var length = e.BytesRecorded;
+                    if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+                    Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                    if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
+                    var copy = new byte[length];
+                    Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
+                    Interlocked.Increment(ref captureBufferCount);
+                    if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                };
+                activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
+                activeCapture.StartRecording();
+                capture = activeCapture;
+                sampleRate = format.SampleRate; channelCount = format.Channels;
+                captureFormat = $"WASAPI exclusive · {format.SampleRate} Hz · {format.Channels} ch · {format.BitsPerSample}-bit PCM";
+                captureNotice = "WASAPI exclusive hardware-format capture";
+                if (selectedOutput is not null) StartMonitorOutput();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                try { attempt?.Dispose(); } catch { }
+            }
+        }
+        failure = $"WASAPI exclusive hardware formats were also rejected ({lastError?.Message ?? "no supported PCM format"}).";
+        return false;
     }
 
     private bool TryStartWindowsWaveInFallback(MMDevice device, WaveFormat mixFormat, int generation, Channel<CapturePacket> queue, out string failure)
