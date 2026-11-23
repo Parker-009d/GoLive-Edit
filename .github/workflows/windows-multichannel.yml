@@ -74,12 +74,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'v0.3.75'
+          $project = [xml](Get-Content 'multichannel-windows/Windows/GoLive.Windows.csproj' -Raw)
+          $version = $project.Project.PropertyGroup.Version
+          $tag = "v$version"
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag 'artifacts/GoLivEdit/GoLivEdit.exe' `
               --repo $env:GITHUB_REPOSITORY `
-              --title 'GoLiv Edit 0.3.75 for Windows' `
+              --title "GoLiv Edit $version for Windows" `
               --notes 'Compressed self-contained Windows x64 EXE.' `
               --prerelease
           } else {
