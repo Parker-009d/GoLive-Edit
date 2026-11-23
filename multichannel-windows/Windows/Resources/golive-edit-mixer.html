@@ -1232,7 +1232,7 @@ window.dcMount=function(root,tpl,C){
 const inst=new C({}),tree=parse(tpl);let hs=[];
 inst.__r=()=>{hs=[];const sc=Object.assign(Object.create(null),inst.renderVals());
 const tmp=document.createElement('div');tmp.innerHTML=run(tree,sc,hs);morph(root,tmp);
-root.querySelectorAll('select[value],input[value]').forEach(e=>{const v=e.getAttribute('value');if(e.value!==v)e.value=v});if(window.__goLiveRefreshOBSSelect)window.__goLiveRefreshOBSSelect()};
+root.querySelectorAll('select[value],input[value]').forEach(e=>{const v=e.getAttribute('value');if(e.value!==v)e.value=v});const backendSelect=root.querySelector('#audioBackend');if(backendSelect&&(sc.audioBackend==='ASIO'||sc.audioBackend==='WASAPI'))backendSelect.value=sc.audioBackend;const inputSelect=root.querySelector('#inputDevice');if(inputSelect&&Number.isInteger(sc.audioDeviceIndex))inputSelect.value=String(sc.audioDeviceIndex);if(window.__goLiveRefreshOBSSelect)window.__goLiveRefreshOBSSelect()};
 const fire=e=>{const keys=e.type==='input'?['input','change']:[e.type];let el=e.target;
 while(el&&el!==root.parentNode){for(const k of keys){const id=el.getAttribute&&el.getAttribute('data-h-'+k);
 if(id!=null&&hs[id]){Object.defineProperty(e,'currentTarget',{value:el,configurable:true});hs[id](e)}}el=el.parentNode}};

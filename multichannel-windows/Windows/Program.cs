@@ -71,7 +71,7 @@ internal sealed class MixerWindow : Form
     private BufferedWaveProvider? monitorBuffer;
     private int monitorSampleRate;
     private readonly StreamingPcm24Resampler monitorResampler = new();
-    private WasapiCapture? capture;
+    private IWaveIn? capture;
     private AsioOut? asioCapture;
     private string audioBackend = (Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioBackend", "WASAPI") as string ?? "WASAPI").ToUpperInvariant();
     private string selectedAsioDriver = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AsioDriverName", "") as string ?? "";
@@ -94,6 +94,7 @@ internal sealed class MixerWindow : Form
     private volatile bool captureHasData;
     private volatile bool captureHasSignal;
     private volatile string captureError = "";
+    private volatile string captureNotice = "";
     private long capturePeakHundredthsDb = -9000;
     private volatile string captureFormat = "";
     private string monitorNotice = "";
@@ -374,6 +375,7 @@ internal sealed class MixerWindow : Form
                     capture = activeCapture;
                     sampleRate = format.SampleRate; channelCount = format.Channels;
                     captureFormat = $"WASAPI · {format.SampleRate} Hz · {format.Channels} ch · {format.BitsPerSample}-bit {format.Encoding}";
+                    captureNotice = "";
                     if (selectedOutput is not null) StartMonitorOutput();
                     return;
                 }
@@ -383,10 +385,66 @@ internal sealed class MixerWindow : Form
                     try { attempt?.Dispose(); } catch { }
                 }
             }
+            if (TryStartWindowsWaveInFallback(device, generation, queue)) return;
             throw lastError ?? new InvalidOperationException("WASAPI could not open this input format.");
         }
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
     }
+
+    private bool TryStartWindowsWaveInFallback(MMDevice device, int generation, Channel<CapturePacket> queue)
+    {
+        try
+        {
+            var endpointName = NormalizeAudioDeviceName(device.FriendlyName);
+            if (endpointName.Length < 8) return false;
+            var matchingDevices = Enumerable.Range(0, WaveIn.DeviceCount)
+                .Select(index => (Index: index, Name: WaveIn.GetCapabilities(index).ProductName))
+                .Select(item => (item.Index, item.Name, Normalized: NormalizeAudioDeviceName(item.Name)))
+                .Where(item => item.Normalized.Length >= 8 &&
+                    (endpointName.Contains(item.Normalized, StringComparison.Ordinal) ||
+                     item.Normalized.Contains(endpointName, StringComparison.Ordinal)))
+                .OrderByDescending(item => item.Normalized.Length)
+                .ToArray();
+
+            foreach (var input in matchingDevices)
+            foreach (var format in new[] { new WaveFormat(44100, 16, 2), new WaveFormat(48000, 16, 2), new WaveFormat(44100, 16, 1), new WaveFormat(48000, 16, 1) })
+            {
+                WaveInEvent? attempt = null;
+                try
+                {
+                    attempt = new WaveInEvent { DeviceNumber = input.Index, WaveFormat = format, BufferMilliseconds = 40, NumberOfBuffers = 3 };
+                    var activeCapture = attempt;
+                    activeCapture.DataAvailable += (_, e) =>
+                    {
+                        var length = e.BytesRecorded;
+                        if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+                        Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
+                        var copy = new byte[length];
+                        Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
+                        Interlocked.Increment(ref captureBufferCount);
+                        if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                    };
+                    activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Windows audio fallback error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
+                    activeCapture.StartRecording();
+                    capture = activeCapture;
+                    sampleRate = format.SampleRate; channelCount = format.Channels;
+                    captureFormat = $"Windows audio fallback · {input.Name} · {format.SampleRate} Hz · {format.Channels} ch · 16-bit PCM";
+                    captureNotice = "WASAPI format rejected · using Windows audio fallback";
+                    return true;
+                }
+                catch
+                {
+                    try { attempt?.Dispose(); } catch { }
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static string NormalizeAudioDeviceName(string? name) =>
+        new((name ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
     private static IEnumerable<WaveFormat> GetWasapiCaptureFormats(WaveFormat mixFormat)
     {
@@ -405,7 +463,7 @@ internal sealed class MixerWindow : Form
     private (int Generation, Channel<CapturePacket> Queue) BeginCaptureQueue()
     {
         var generation = Volatile.Read(ref captureGeneration);
-        captureHasData = false; captureHasSignal = false; captureError = "";
+        captureHasData = false; captureHasSignal = false; captureError = ""; captureNotice = "";
         Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
         Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
         Interlocked.Exchange(ref captureLastBufferTicks, 0);
@@ -534,7 +592,7 @@ internal sealed class MixerWindow : Form
             var dropped = Interlocked.Read(ref captureDroppedPackets);
             var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
             var hasInput = audioBackend == "ASIO" ? asioCapture is not null : selectedDevice is not null;
-            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"{audioBackend} signal detected · {channels} hardware channels{dropNote}" : $"{audioBackend} active · no signal · {channels} channels{dropNote}";
+            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? captureNotice + (captureHasData ? " · signal detected" : " · waiting for signal") : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"{audioBackend} signal detected · {channels} hardware channels{dropNote}" : $"{audioBackend} active · no signal · {channels} channels{dropNote}";
             var json = JsonSerializer.Serialize(new { backend = audioBackend, names, index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
             await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
         }
