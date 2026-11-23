@@ -86,6 +86,8 @@ internal sealed class MixerWindow : Form
     private volatile bool captureHasData;
     private volatile bool captureHasSignal;
     private volatile string captureError = "";
+    private volatile double capturePeakDb = -90;
+    private volatile string captureFormat = "";
     private string monitorNotice = "";
     private string selectedUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", "") as string ?? "";
     private readonly ObsSocket obs = new();
@@ -240,6 +242,7 @@ internal sealed class MixerWindow : Form
         {
             var generation = Volatile.Read(ref captureGeneration);
             captureHasData = false; captureHasSignal = false; captureError = "";
+            capturePeakDb = -90;
             Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
             // Keep the software path bounded to a short realtime cushion. A large
             // queue makes monitor audio play stale buffers after a CPU/UI stall.
@@ -260,6 +263,7 @@ internal sealed class MixerWindow : Form
             });
             capture = new WasapiCapture(device, true, 20);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
+            captureFormat = $"{capture.WaveFormat.SampleRate} Hz · {capture.WaveFormat.Channels} ch · {capture.WaveFormat.BitsPerSample}-bit {capture.WaveFormat.Encoding}";
             var activeCapture = capture;
             activeCapture.DataAvailable += (_, e) =>
             {
@@ -454,6 +458,7 @@ internal sealed class MixerWindow : Form
                 levels[channel] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
             }
+            capturePeakDb = channels > 0 ? levels.Take(channels).Max() : -90;
             for (var channel = 0; channel < clips.Length; channel++) clips[channel] = now < clipUntil[channel];
         }
     }
@@ -588,7 +593,7 @@ internal sealed class MixerWindow : Form
         double[] l; bool[] c; double sr; int ch;
         lock (audioLock) { l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount; }
         var fxLevels = localFX.ReadMeters();
-        var info = new { sampleRate = sr, channels = ch, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
+        var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = capturePeakDb, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
         var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
         try { await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels(${payload})"); }
         catch { }
