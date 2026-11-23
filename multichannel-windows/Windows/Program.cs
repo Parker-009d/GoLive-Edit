@@ -47,9 +47,10 @@ internal sealed class MixerWindow : Form
 
     private readonly WebView2 web = new() { Dock = DockStyle.Fill };
     private readonly MMDeviceEnumerator enumerator = new();
-    private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 100 };
+    // Full mixer-state snapshots go to the remote/OBS bridge; polling at 10 Hz competes with WebView meter rendering.
+    private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
     private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 40 };
-    private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 100 };
+    private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
     private readonly object recordLock = new();
@@ -75,7 +76,7 @@ internal sealed class MixerWindow : Form
     private readonly float[][] spectrumRing = Enumerable.Range(0, 24).Select(_ => new float[2048]).ToArray();
     private static readonly double[] SpectrumWindow = Enumerable.Range(0, 2048).Select(i => .5 - .5 * Math.Cos(2 * Math.PI * i / 2047)).ToArray();
     private int spectrumBusy, meterPublishBusy, statePublishBusy, captureGeneration;
-    private long captureBufferCount, captureDroppedPackets;
+    private long captureBufferCount, captureDroppedPackets, captureLastBufferTicks;
     private int spectrumIndex;
     private int spectrumFilled;
     private double[] levels = Enumerable.Repeat(-90d, 24).ToArray();
@@ -243,7 +244,7 @@ internal sealed class MixerWindow : Form
             var generation = Volatile.Read(ref captureGeneration);
             captureHasData = false; captureHasSignal = false; captureError = "";
             Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
-            Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
+            Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0); Interlocked.Exchange(ref captureLastBufferTicks, 0);
             // Keep the software path bounded to a short realtime cushion. A large
             // queue makes monitor audio play stale buffers after a CPU/UI stall.
             captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
@@ -269,6 +270,7 @@ internal sealed class MixerWindow : Form
             {
                 var length = e.BytesRecorded;
                 if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+                Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
                 if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                 UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat);
                 var copy = new byte[length];
@@ -591,7 +593,18 @@ internal sealed class MixerWindow : Form
     {
         if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
         double[] l; bool[] c; double sr; int ch;
-        lock (audioLock) { l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount; }
+        var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
+            var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(300).Ticks;
+            lock (audioLock)
+            {
+                if (staleCapture)
+                {
+                    Array.Fill(levels, -90d);
+                    Array.Clear(clips);
+                    captureHasSignal = false;
+                }
+                l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
+            }
         var fxLevels = localFX.ReadMeters();
         var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
         var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
