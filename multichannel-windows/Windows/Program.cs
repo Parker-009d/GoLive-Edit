@@ -99,6 +99,7 @@ internal sealed class MixerWindow : Form
     private HttpListener? remote;
     private DateTime codeExpiry = DateTime.UtcNow.AddMinutes(3);
     private const int PairPort = 8443;
+    private const double SignalThresholdDb = -88d;
 
     public MixerWindow()
     {
@@ -457,7 +458,7 @@ internal sealed class MixerWindow : Form
             Array.Fill(levels, -90d);
             for (var channel = 0; channel < channels; channel++)
             {
-                if (peak[channel] > 0.0001) captureHasSignal = true;
+                if (levels[channel] > SignalThresholdDb) captureHasSignal = true;
                 levels[channel] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
             }
