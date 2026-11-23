@@ -33,6 +33,7 @@ jobs:
           $resource = Join-Path $PWD 'multichannel-windows/Windows/Resources/GoLiveFX.dll'
           cl.exe /nologo /std:c++17 /O2 /LD $source /link "/OUT:$plugin" /EXPORT:VSTPluginMain
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $plugin)) { throw 'GoLiveFX.dll build failed.' }
+          New-Item -ItemType Directory -Force -Path (Split-Path $resource) | Out-Null
           Copy-Item $plugin $resource -Force
 
       - name: Restore the app icon
