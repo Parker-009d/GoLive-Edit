@@ -1247,8 +1247,17 @@ let realInputLevels=Array(24).fill(-90);
 let displayInputLevels=Array(24).fill(-90),fxSendMeters=Array(4).fill(-90),fxReturnMeters=Array(4).fill(-90);
 let obsMeterTargets={},displayOBSMeterLevels=Array(24).fill(-90);
 let realInputSpectra=Array.from({length:24},()=>Array(48).fill(-90));
-let demoMeterTimer=null,demoMeterTime=0;
-function setDemoMeterMode(enabled){if(enabled){if(demoMeterTimer)return;demoMeterTimer=setInterval(()=>{if(hostCfg.audioInputIndex>=0){clearInterval(demoMeterTimer);demoMeterTimer=null;return}demoMeterTime+=1/15;const levels=Array.from({length:24},(_,i)=>-42+6.2*Math.sin(demoMeterTime*(0.39+i*0.012)+i*0.71)+2.1*Math.sin(demoMeterTime*(0.17+i*0.006)+i*1.13)),spectra=Array.from({length:24},()=>Array(48).fill(-90)),selected=window.goLiveMixer?window.goLiveMixer.state.sel:0;spectra[selected]=Array.from({length:48},(_,k)=>Math.max(-90,levels[selected]-12-10*Math.abs(Math.sin(k*0.115+selected*0.09+demoMeterTime*0.035))));if(window.__goLiveSetAudioLevels)window.__goLiveSetAudioLevels({levels,spectra,info:{channels:24,sampleRate:48000,clips:Array(24).fill(false),demo:true}})},1000/15)}else if(demoMeterTimer){clearInterval(demoMeterTimer);demoMeterTimer=null}}
+let demoMeterTimer=null,demoMeterTime=0,meterDemoMode=null;
+function setDemoMeterMode(enabled){
+if(meterDemoMode!==enabled){
+meterDemoMode=enabled;
+realInputLevels.fill(-90);displayInputLevels.fill(-90);realInputSpectra=Array.from({length:24},()=>Array(48).fill(-90));fxSendMeters.fill(-90);fxReturnMeters.fill(-90);analyzerDisplay=Array.from({length:24},()=>Array(48).fill(-90));
+}
+if(enabled){
+if(demoMeterTimer)return;
+demoMeterTimer=setInterval(()=>{if(hostCfg.audioInputIndex>=0){clearInterval(demoMeterTimer);demoMeterTimer=null;return}demoMeterTime+=1/15;const levels=Array.from({length:24},(_,i)=>-42+6.2*Math.sin(demoMeterTime*(0.39+i*0.012)+i*0.71)+2.1*Math.sin(demoMeterTime*(0.17+i*0.006)+i*1.13)),spectra=Array.from({length:24},()=>Array(48).fill(-90)),selected=window.goLiveMixer?window.goLiveMixer.state.sel:0;spectra[selected]=Array.from({length:48},(_,k)=>Math.max(-90,levels[selected]-12-10*Math.abs(Math.sin(k*0.115+selected*0.09+demoMeterTime*0.035))));if(window.__goLiveSetAudioLevels)window.__goLiveSetAudioLevels({levels,spectra,info:{channels:24,sampleRate:48000,clips:Array(24).fill(false),demo:true}})},1000/15)
+}else if(demoMeterTimer){clearInterval(demoMeterTimer);demoMeterTimer=null}
+}
 let analyzerDisplay=Array.from({length:24},()=>Array(48).fill(-90));
 let analyzerPath='M40 170H540V172H40Z';
 const inputIndex=(channel,fallback)=>{const source=String(channel&&channel.inp||'');if(hostCfg.audioInputIndex<0)return fallback;if(source.toLowerCase().includes('no input'))return -1;const m=source.match(/\b(?:IN|Input)\s*(\d+)/i);return m?Math.max(0,Math.min(23,+m[1]-1)):fallback};
