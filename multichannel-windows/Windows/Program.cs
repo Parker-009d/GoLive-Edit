@@ -109,6 +109,14 @@ internal sealed class MixerWindow : Form
     private const int PairPort = 8443;
     private const double SignalThresholdDb = -88d;
 
+    private sealed class WasapiCaptureWithoutAutoConvert : WasapiCapture
+    {
+        public WasapiCaptureWithoutAutoConvert(MMDevice device, int bufferMilliseconds)
+            : base(device, false, bufferMilliseconds) { }
+
+        protected override AudioClientStreamFlags GetAudioClientStreamFlags() => (AudioClientStreamFlags)0;
+    }
+
     public MixerWindow()
     {
         Text = "GoLiv Edit Multichannel 24";
@@ -339,14 +347,16 @@ internal sealed class MixerWindow : Form
             using (var audioClient = device.AudioClient) mixFormat = audioClient.MixFormat;
 
             Exception? lastError = null;
-            foreach (var format in GetWasapiCaptureFormats(mixFormat))
+            var formats = GetWasapiCaptureFormats(mixFormat).Select(format => (Format: format, Native: false))
+                .Append((Format: mixFormat, Native: true)).ToArray();
+            foreach (var (format, useNativeFormat) in formats)
             {
                 WasapiCapture? attempt = null;
                 try
                 {
                     // Some interface drivers advertise a mix format that WASAPI rejects for capture.
                     // Retry standard shared-mode formats before reporting a device error.
-                    attempt = new WasapiCapture(device, false, 100) { WaveFormat = format };
+                    attempt = useNativeFormat ? new WasapiCaptureWithoutAutoConvert(device, 100) { WaveFormat = format } : new WasapiCapture(device, false, 100) { WaveFormat = format };
                     var activeCapture = attempt;
                     activeCapture.DataAvailable += (_, e) =>
                     {
@@ -513,7 +523,7 @@ internal sealed class MixerWindow : Form
             inputs = GetInputs(); outputs = GetOutputs();
             try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
             var names = audioBackend == "ASIO" ? asioDriverNames : inputs.Select(AudioDeviceLabel).ToArray();
-            var index = audioBackend == "ASIO" ? (asioCapture is null ? -1 : Array.IndexOf(asioDriverNames, selectedAsioDriver)) : selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
+            var index = audioBackend == "ASIO" ? Array.IndexOf(asioDriverNames, selectedAsioDriver) : selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
             // Hold the last published selection during a brief Windows endpoint-enumeration gap.
             // A real capture stop/error will still publish immediately and expose the failure.
             if ((audioBackend == "WASAPI" && selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
