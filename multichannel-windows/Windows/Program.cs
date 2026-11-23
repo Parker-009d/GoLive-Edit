@@ -265,6 +265,8 @@ internal sealed class MixerWindow : Form
             {
                 var length = e.BytesRecorded;
                 if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+                if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
+                UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat);
                 var copy = new byte[length];
                 Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
                 Interlocked.Increment(ref captureBufferCount);
@@ -331,7 +333,7 @@ internal sealed class MixerWindow : Form
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
         var dropped = Interlocked.Read(ref captureDroppedPackets);
         var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
-        var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
+        var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
         var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
@@ -339,9 +341,8 @@ internal sealed class MixerWindow : Form
     private void CaptureAudio(byte[] bytes, int length, WaveFormat? format, int generation)
     {
         if (generation != Volatile.Read(ref captureGeneration) || format is null || length < format.BlockAlign) return;
-        if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
         var frames = length / format.BlockAlign; var channels = format.Channels;
-        var samples = new float[frames * channels]; var meterChannels = Math.Min(24, channels); var peak = new double[meterChannels]; var sum = new double[meterChannels];
+        var samples = new float[frames * channels]; var meterChannels = Math.Min(24, channels);
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
         {
             var offset = frame * format.BlockAlign + c * (format.BitsPerSample / 8);
@@ -354,10 +355,8 @@ internal sealed class MixerWindow : Form
                 _ => 0
             };
             samples[frame * channels + c] = v;
-            if (c < peak.Length) { peak[c] = Math.Max(peak[c], Math.Abs(v)); sum[c] += v * v; }
         }
         if (generation != Volatile.Read(ref captureGeneration)) return;
-        if (peak.Any(x => x > 0.0001)) captureHasSignal = true;
         JsonElement state; lock (audioLock) state = mixerState;
         var ch = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("ch", out var cs) ? cs : default;
         var main = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("main", out var ms) ? ms : default;
@@ -376,17 +375,10 @@ internal sealed class MixerWindow : Form
         if (generation != Volatile.Read(ref captureGeneration)) return;
         lock (audioLock)
         {
-            levels = Enumerable.Repeat(-90d,24).ToArray();
             for (var frame = 0; frame < frames; frame++)
             {
                 for (var c = 0; c < meterChannels; c++) spectrumRing[c][spectrumIndex] = samples[frame * channels + c];
                 spectrumIndex = (spectrumIndex + 1) % 2048; spectrumFilled = Math.Min(2048, spectrumFilled + 1);
-            }
-            for (var c = 0; c < peak.Length; c++)
-            {
-                levels[c] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[c] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[c])) - 6));
-                if (peak[c] >= .999) clipUntil[c] = DateTime.UtcNow.AddSeconds(1.5);
-                clips[c] = DateTime.UtcNow < clipUntil[c];
             }
         }
         if (writer is null && monitorBuffer is null) return;
@@ -425,6 +417,45 @@ internal sealed class MixerWindow : Form
         if (generation != Volatile.Read(ref captureGeneration)) return;
         lock (recordLock) { writer?.Write(output, 0, output.Length); }
         try { var monitorBytes = format.SampleRate == monitorSampleRate ? output : monitorResampler.Process(output, frames, format.SampleRate, monitorSampleRate); monitorBuffer?.AddSamples(monitorBytes, 0, monitorBytes.Length); } catch { }
+    }
+
+    private void UpdateCaptureMeters(byte[] bytes, int length, WaveFormat format)
+    {
+        if (format.BlockAlign <= 0) return;
+        var frames = length / format.BlockAlign;
+        var channels = Math.Min(24, format.Channels);
+        if (frames <= 0 || channels <= 0) return;
+        Span<double> peak = stackalloc double[24];
+        Span<double> sum = stackalloc double[24];
+        peak.Clear(); sum.Clear();
+        for (var frame = 0; frame < frames; frame++)
+            for (var channel = 0; channel < channels; channel++)
+            {
+                var offset = frame * format.BlockAlign + channel * (format.BitsPerSample / 8);
+                var isFloat32 = format.BitsPerSample == 32 && (format.Encoding == WaveFormatEncoding.IeeeFloat || (format is WaveFormatExtensible extensible && extensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")));
+                var sample = isFloat32 ? BitConverter.ToSingle(bytes, offset) : format.BitsPerSample switch
+                {
+                    16 => BitConverter.ToInt16(bytes, offset) / 32768f,
+                    24 => Read24(bytes, offset) / 8388608f,
+                    32 => BitConverter.ToInt32(bytes, offset) / 2147483648f,
+                    _ => 0
+                };
+                var magnitude = Math.Abs(sample);
+                if (magnitude > peak[channel]) peak[channel] = magnitude;
+                sum[channel] += sample * sample;
+            }
+        var now = DateTime.UtcNow;
+        lock (audioLock)
+        {
+            Array.Fill(levels, -90d);
+            for (var channel = 0; channel < channels; channel++)
+            {
+                if (peak[channel] > 0.0001) captureHasSignal = true;
+                levels[channel] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
+                if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
+            }
+            for (var channel = 0; channel < clips.Length; channel++) clips[channel] = now < clipUntil[channel];
+        }
     }
 
     private sealed class StreamingPcm24Resampler
