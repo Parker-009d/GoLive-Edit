@@ -458,8 +458,8 @@ internal sealed class MixerWindow : Form
             Array.Fill(levels, -90d);
             for (var channel = 0; channel < channels; channel++)
             {
-                if (levels[channel] > SignalThresholdDb) captureHasSignal = true;
                 levels[channel] = Math.Max(-90, Math.Max(20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))), 20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
+                if (levels[channel] > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
             }
             Interlocked.Exchange(ref capturePeakHundredthsDb, (long)Math.Round((channels > 0 ? levels.Take(channels).Max() : -90) * 100));
