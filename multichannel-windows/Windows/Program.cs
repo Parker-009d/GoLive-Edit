@@ -239,7 +239,9 @@ internal sealed class MixerWindow : Form
         {
             captureHasData = false; captureHasSignal = false; captureError = "";
             Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
-            captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
+            // Keep the software path bounded to a short realtime cushion. A large
+            // queue makes monitor audio play stale buffers after a CPU/UI stall.
+            captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
             captureWorkerCancellation = new CancellationTokenSource();
             var queue = captureQueue;
             var cancellation = captureWorkerCancellation;
@@ -252,7 +254,7 @@ internal sealed class MixerWindow : Form
                 }
                 catch (OperationCanceledException) { }
             });
-            capture = new WasapiCapture(device, true, 60);
+            capture = new WasapiCapture(device, true, 20);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
             var activeCapture = capture;
             activeCapture.DataAvailable += (_, e) =>
@@ -285,8 +287,8 @@ internal sealed class MixerWindow : Form
         {
             monitorSampleRate = selectedOutput.AudioClient.MixFormat.SampleRate;
             monitorResampler.Reset();
-            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(1500) };
-            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 60);
+            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(120) };
+            monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 20);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
         catch (Exception ex) { _ = SetRecordingStatusAsync("Monitor output error: " + ex.Message, false, ""); monitorOut = null; monitorBuffer = null; }
@@ -317,7 +319,10 @@ internal sealed class MixerWindow : Form
         var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
         var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : selectedDevice.AudioClient.MixFormat.Channels;
         var outputs = GetOutputs(); var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-        var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels" : $"Capture active · no signal · {channels} channels" });
+        var dropped = Interlocked.Read(ref captureDroppedPackets);
+        var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
+        var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "No capture packets · check device or Windows audio driver" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
+        var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
         return web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
     }
 
