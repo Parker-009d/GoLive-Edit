@@ -9,6 +9,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
+using NAudio.Wave.Asio;
 
 namespace GoLivEdit;
 
@@ -71,6 +72,10 @@ internal sealed class MixerWindow : Form
     private int monitorSampleRate;
     private readonly StreamingPcm24Resampler monitorResampler = new();
     private WasapiCapture? capture;
+    private AsioOut? asioCapture;
+    private string audioBackend = (Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioBackend", "WASAPI") as string ?? "WASAPI").ToUpperInvariant();
+    private string selectedAsioDriver = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AsioDriverName", "") as string ?? "";
+    private string[] asioDriverNames = [];
     private WaveFileWriter? writer;
     private JsonElement mixerState;
     private string remoteState = "{\"ch\":[],\"main\":{}}";
@@ -125,11 +130,18 @@ internal sealed class MixerWindow : Form
 
     private async Task InitializeMixerAsync()
     {
+        audioBackend = audioBackend == "ASIO" ? "ASIO" : "WASAPI";
+        try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
+        if (audioBackend == "ASIO" && string.IsNullOrEmpty(selectedAsioDriver) && asioDriverNames.Length > 0)
+        {
+            selectedAsioDriver = asioDriverNames[0];
+            Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AsioDriverName", selectedAsioDriver);
+        }
         var inputs = GetInputs();
         // If the saved endpoint is temporarily absent, do not silently switch to a
         // different microphone/interface. Keep its ID so it can reconnect in place.
         var persisted = inputs.FirstOrDefault(x => x.ID == selectedUid) ?? (string.IsNullOrEmpty(selectedUid) ? inputs.FirstOrDefault() : null);
-        selectedDevice = persisted;
+        selectedDevice = audioBackend == "ASIO" ? null : persisted;
         if (selectedDevice is not null) selectedUid = selectedDevice.ID;
         var outputs = GetOutputs();
         var savedOutputUid = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioOutputUid", "") as string ?? "";
@@ -138,12 +150,16 @@ internal sealed class MixerWindow : Form
         outputDeviceIds = outputs.Select(x => x.ID).ToArray();
         var inputChannels = 0;
         if (selectedDevice is not null) { using var audioClient = selectedDevice.AudioClient; inputChannels = audioClient.MixFormat.Channels; }
+        var activeInputs = audioBackend == "ASIO" ? asioDriverNames : inputs.Select(AudioDeviceLabel).ToArray();
+        var selectedInputIndex = audioBackend == "ASIO"
+            ? Array.IndexOf(asioDriverNames, selectedAsioDriver)
+            : selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice);
         var config = new
         {
             code = pairingCode, ip = LanAddress(), url = $"http://{LanAddress()}:{PairPort}/",
             obsInputs = Array.Empty<string>(), obsSource1, obsSource2,
             obsSources = Enumerable.Range(0,24).Select(i => Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "ObsSource" + (i + 1), "") as string ?? "").ToArray(),
-            audioInputs = inputs.Select(AudioDeviceLabel).ToArray(), audioInputIndex = selectedDevice is null ? -1 : inputs.IndexOf(selectedDevice),
+            audioBackend, audioInputs = activeInputs, audioInputIndex = selectedInputIndex,
             audioChannelCount = inputChannels,
             audioOutputs = outputs.Select(AudioDeviceLabel).ToArray(), audioOutputIndex = selectedOutput is null ? -1 : outputs.IndexOf(selectedOutput)
         };
@@ -156,7 +172,8 @@ internal sealed class MixerWindow : Form
         var page = ResourcePath("golive-edit-mixer.html");
         web.Source = new Uri(page);
         StartRemoteServer();
-        if (selectedDevice is not null) StartCapture(selectedDevice);
+        if (audioBackend == "ASIO" && selectedInputIndex >= 0) StartAsioCapture(selectedAsioDriver);
+        else if (audioBackend == "WASAPI" && selectedDevice is not null) StartCapture(selectedDevice);
         stateTimer.Start(); meterTimer.Start(); spectrumTimer.Start(); deviceTimer.Start();
     }
 
@@ -188,13 +205,51 @@ internal sealed class MixerWindow : Form
             switch (handler)
             {
                 case "goLiveAudioDevice":
-                    var index = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("index", out var inputIndexValue) ? inputIndexValue.GetInt32() : body.GetInt32(); var inputs = GetInputs();
-                    var inputId = index >= 0 && index < inputDeviceIds.Length ? inputDeviceIds[index] : null;
-                    var nextInput = inputId is null ? null : inputs.FirstOrDefault(x => x.ID == inputId);
-                    if (index >= 0 && nextInput is not null) { var previous = selectedDevice; selectedDevice = nextInput; selectedUid = selectedDevice.ID; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", selectedUid); StartCapture(selectedDevice); if (!ReferenceEquals(previous, selectedDevice)) previous?.Dispose(); await PublishAudioDevicesAsync(); }
-                    else if (index == -1) { var previous = selectedDevice; selectedDevice = null; selectedUid = ""; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", ""); StopCapture(); previous?.Dispose(); await PublishAudioDevicesAsync(); }
-                    else await PublishAudioDevicesAsync();
-                    DisposeDevices(inputs, selectedDevice);
+                    var index = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("index", out var inputIndexValue) ? inputIndexValue.GetInt32() : body.GetInt32();
+                    if (audioBackend == "ASIO")
+                    {
+                        try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
+                        if (index >= 0 && index < asioDriverNames.Length)
+                        {
+                            selectedAsioDriver = asioDriverNames[index];
+                            Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AsioDriverName", selectedAsioDriver);
+                            StartAsioCapture(selectedAsioDriver);
+                        }
+                        else if (index == -1) { selectedAsioDriver = ""; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AsioDriverName", ""); StopCapture(); }
+                        await PublishAudioDevicesAsync();
+                    }
+                    else
+                    {
+                        var inputs = GetInputs();
+                        var inputId = index >= 0 && index < inputDeviceIds.Length ? inputDeviceIds[index] : null;
+                        var nextInput = inputId is null ? null : inputs.FirstOrDefault(x => x.ID == inputId);
+                        if (index >= 0 && nextInput is not null) { var previous = selectedDevice; selectedDevice = nextInput; selectedUid = selectedDevice.ID; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", selectedUid); StartCapture(selectedDevice); if (!ReferenceEquals(previous, selectedDevice)) previous?.Dispose(); await PublishAudioDevicesAsync(); }
+                        else if (index == -1) { var previous = selectedDevice; selectedDevice = null; selectedUid = ""; Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioDeviceUid", ""); StopCapture(); previous?.Dispose(); await PublishAudioDevicesAsync(); }
+                        else await PublishAudioDevicesAsync();
+                        DisposeDevices(inputs, selectedDevice);
+                    }
+                    break;
+                case "goLiveAudioBackend":
+                    var requestedBackend = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("backend", out var backendValue) ? backendValue.GetString() : body.GetString();
+                    audioBackend = string.Equals(requestedBackend, "ASIO", StringComparison.OrdinalIgnoreCase) ? "ASIO" : "WASAPI";
+                    Microsoft.Win32.Registry.SetValue(@"HKEY_CURRENT_USER\Software\GoLiveEdit", "AudioBackend", audioBackend);
+                    StopCapture();
+                    if (audioBackend == "ASIO")
+                    {
+                        selectedDevice?.Dispose(); selectedDevice = null;
+                        try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
+                        if (!asioDriverNames.Contains(selectedAsioDriver)) selectedAsioDriver = asioDriverNames.FirstOrDefault() ?? "";
+                        if (!string.IsNullOrEmpty(selectedAsioDriver)) StartAsioCapture(selectedAsioDriver);
+                    }
+                    else
+                    {
+                        try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
+                        var wasapiInputs = GetInputs();
+                        selectedDevice = wasapiInputs.FirstOrDefault(x => x.ID == selectedUid) ?? wasapiInputs.FirstOrDefault();
+                        if (selectedDevice is not null) { selectedUid = selectedDevice.ID; StartCapture(selectedDevice); }
+                        DisposeDevices(wasapiInputs, selectedDevice);
+                    }
+                    await PublishAudioDevicesAsync();
                     break;
                 case "goLiveRecordingControl":
                     if (body.GetProperty("action").GetString() == "stop") StopRecording(); else BeginRecording();
@@ -262,28 +317,7 @@ internal sealed class MixerWindow : Form
         StopCapture();
         try
         {
-            var generation = Volatile.Read(ref captureGeneration);
-            captureHasData = false; captureHasSignal = false; captureError = "";
-            Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
-            Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
-            Interlocked.Exchange(ref captureLastBufferTicks, 0);
-            // Keep the software path bounded to a short realtime cushion. A large
-            // queue makes monitor audio play stale buffers after a CPU/UI stall.
-            captureQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
-            captureWorkerCancellation = new CancellationTokenSource();
-            var queue = captureQueue;
-            var cancellation = captureWorkerCancellation;
-            captureWorker = Task.Run(async () =>
-            {
-                try
-                {
-                    await foreach (var packet in queue.Reader.ReadAllAsync(cancellation.Token))
-                        lock (captureProcessLock)
-                            if (packet.Generation == Volatile.Read(ref captureGeneration))
-                                CaptureAudio(packet.Buffer, packet.Length, packet.Format, packet.Generation);
-                }
-                catch (OperationCanceledException) { }
-            });
+            var (generation, queue) = BeginCaptureQueue();
             // Use periodic polling: some USB/interface drivers signal WASAPI events unreliably and stop advancing meter callbacks.
             capture = new WasapiCapture(device, false, 20);
             sampleRate = capture.WaveFormat.SampleRate; channelCount = capture.WaveFormat.Channels;
@@ -305,6 +339,75 @@ internal sealed class MixerWindow : Form
             if (selectedOutput is not null) StartMonitorOutput();
         }
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
+    }
+
+    private (int Generation, Channel<CapturePacket> Queue) BeginCaptureQueue()
+    {
+        var generation = Volatile.Read(ref captureGeneration);
+        captureHasData = false; captureHasSignal = false; captureError = "";
+        Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
+        Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
+        Interlocked.Exchange(ref captureLastBufferTicks, 0);
+        // Two driver blocks bound the queued work so a UI stall cannot leave seconds
+        // of old audio waiting to be processed after the interface recovers.
+        var queue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
+        captureQueue = queue;
+        captureWorkerCancellation = new CancellationTokenSource();
+        var cancellation = captureWorkerCancellation;
+        captureWorker = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var packet in queue.Reader.ReadAllAsync(cancellation.Token))
+                    lock (captureProcessLock)
+                        if (packet.Generation == Volatile.Read(ref captureGeneration))
+                            CaptureAudio(packet.Buffer, packet.Length, packet.Format, packet.Generation);
+            }
+            catch (OperationCanceledException) { }
+        });
+        return (generation, queue);
+    }
+
+    private void StartAsioCapture(string driverName)
+    {
+        StopCapture();
+        try
+        {
+            var (generation, queue) = BeginCaptureQueue();
+            var activeAsio = new AsioOut(driverName);
+            asioCapture = activeAsio;
+            var channels = Math.Min(24, activeAsio.DriverInputChannelCount);
+            if (channels <= 0) throw new InvalidOperationException("The ASIO driver reports no input channels.");
+            var rate = activeAsio.IsSampleRateSupported(48000) ? 48000 : activeAsio.IsSampleRateSupported(44100) ? 44100 : 0;
+            if (rate == 0) throw new InvalidOperationException("The ASIO driver supports neither 48 kHz nor 44.1 kHz.");
+            activeAsio.InitRecordAndPlayback(null, channels, rate);
+            sampleRate = rate; channelCount = channels;
+            var format = WaveFormat.CreateIeeeFloatWaveFormat(rate, channels);
+            captureFormat = $"ASIO · {rate} Hz · {channels} ch · 32-bit float";
+            var sampleBuffer = new float[activeAsio.FramesPerBuffer * channels];
+            activeAsio.AudioAvailable += (_, e) =>
+            {
+                if (generation != Volatile.Read(ref captureGeneration)) return;
+                var sampleCount = e.GetAsInterleavedSamples(sampleBuffer);
+                var length = sampleCount * sizeof(float);
+                if (length <= 0) return;
+                Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
+                var copy = new byte[length];
+                Buffer.BlockCopy(sampleBuffer, 0, copy, 0, length);
+                Interlocked.Increment(ref captureBufferCount);
+                if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, format))) Interlocked.Increment(ref captureDroppedPackets);
+            };
+            activeAsio.Play();
+            if (selectedOutput is not null) StartMonitorOutput();
+        }
+        catch (Exception ex)
+        {
+            captureError = "ASIO input error: " + ex.Message;
+            StopCapture();
+            captureError = "ASIO input error: " + ex.Message;
+            _ = PublishAudioDevicesAsync();
+        }
     }
 
     private void StartMonitorOutput()
@@ -333,6 +436,9 @@ internal sealed class MixerWindow : Form
         Interlocked.Increment(ref captureGeneration);
         try { capture?.StopRecording(); } catch { }
         capture?.Dispose(); capture = null;
+        try { asioCapture?.Stop(); } catch { }
+        try { asioCapture?.Dispose(); } catch { }
+        asioCapture = null;
         var queue = captureQueue; captureQueue = null; queue?.Writer.TryComplete();
         var worker = captureWorker; captureWorker = null;
         var cancellation = captureWorkerCancellation; captureWorkerCancellation = null;
@@ -354,18 +460,21 @@ internal sealed class MixerWindow : Form
         try
         {
             inputs = GetInputs(); outputs = GetOutputs();
-            var index = selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
+            try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
+            var names = audioBackend == "ASIO" ? asioDriverNames : inputs.Select(AudioDeviceLabel).ToArray();
+            var index = audioBackend == "ASIO" ? Array.IndexOf(asioDriverNames, selectedAsioDriver) : selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
             // Hold the last published selection during a brief Windows endpoint-enumeration gap.
             // A real capture stop/error will still publish immediately and expose the failure.
-            if ((selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
+            if ((audioBackend == "WASAPI" && selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
                 (selectedOutput is not null && outputs.All(x => x.ID != selectedOutput.ID) && string.IsNullOrEmpty(captureError))) return;
-            var channels = capture is not null ? capture.WaveFormat.Channels : selectedDevice is null ? 0 : 0;
+            var channels = capture is not null ? capture.WaveFormat.Channels : asioCapture is not null ? channelCount : 0;
             var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
             inputDeviceIds = inputs.Select(x => x.ID).ToArray(); outputDeviceIds = outputs.Select(x => x.ID).ToArray();
             var dropped = Interlocked.Read(ref captureDroppedPackets);
             var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
-            var status = selectedDevice is null ? "No audio input selected" : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"Audio signal detected · {channels} hardware channels{dropNote}" : $"Capture active · no signal · {channels} channels{dropNote}";
-            var json = JsonSerializer.Serialize(new { names = inputs.Select(AudioDeviceLabel).ToArray(), index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
+            var hasInput = audioBackend == "ASIO" ? !string.IsNullOrEmpty(selectedAsioDriver) : selectedDevice is not null;
+            var status = !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install the interface ASIO driver" : "No audio input selected") : !string.IsNullOrEmpty(captureError) ? captureError : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"{audioBackend} signal detected · {channels} hardware channels{dropNote}" : $"{audioBackend} active · no signal · {channels} channels{dropNote}";
+            var json = JsonSerializer.Serialize(new { backend = audioBackend, names, index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
             await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
         }
         catch { }
@@ -588,12 +697,12 @@ internal sealed class MixerWindow : Form
 
     private void BeginRecording()
     {
-        if (capture is null) { _ = SetRecordingStatusAsync("Select an active audio input first.", false, ""); return; }
+        if (capture is null && asioCapture is null) { _ = SetRecordingStatusAsync("Select an active audio input first.", false, ""); return; }
         using var dialog = new SaveFileDialog { Filter = "WAV audio|*.wav", FileName = $"GoLive-Recording-{DateTime.Now:yyyyMMdd-HHmmss}.wav" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            var format = new WaveFormat(capture.WaveFormat.SampleRate, 24, 2);
+            var format = new WaveFormat((int)sampleRate, 24, 2);
             lock (recordLock) writer = new WaveFileWriter(dialog.FileName, format);
             _ = SetRecordingStatusAsync("Recording · " + Path.GetFileName(dialog.FileName), true, Path.GetFileName(dialog.FileName));
         }
