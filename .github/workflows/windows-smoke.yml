@@ -100,7 +100,8 @@ jobs:
             if (-not (Test-Path $source)) { throw "Required Windows runtime file missing: $file" }
             Copy-Item $source $package
           }
-          Copy-Item 'artifacts/GoLivEdit/runtimes' $package -Recurse -Force
+          $runtimes = 'artifacts/GoLivEdit/runtimes'
+          if (Test-Path $runtimes) { Copy-Item $runtimes $package -Recurse -Force }
           Copy-Item 'artifacts/GoLivEdit/Resources' $package -Recurse -Force
           @'
           GoLiv Edit App 0.2.0 — Windows x64
