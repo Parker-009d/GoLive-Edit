@@ -385,27 +385,51 @@ internal sealed class MixerWindow : Form
                     try { attempt?.Dispose(); } catch { }
                 }
             }
-            if (TryStartWindowsWaveInFallback(device, generation, queue)) return;
-            throw lastError ?? new InvalidOperationException("WASAPI could not open this input format.");
+            if (TryStartWindowsWaveInFallback(device, generation, queue, out var fallbackFailure)) return;
+            throw new InvalidOperationException(
+                $"WASAPI rejected the Fast Track format ({lastError?.Message ?? "unknown WASAPI error"}). {fallbackFailure}",
+                lastError);
         }
         catch (Exception ex) { captureError = "Input error: " + ex.Message; _ = PublishAudioDevicesAsync(); }
     }
 
-    private bool TryStartWindowsWaveInFallback(MMDevice device, int generation, Channel<CapturePacket> queue)
+    private bool TryStartWindowsWaveInFallback(MMDevice device, int generation, Channel<CapturePacket> queue, out string failure)
     {
+        failure = "";
         try
         {
             var endpointName = NormalizeAudioDeviceName(device.FriendlyName);
-            if (endpointName.Length < 8) return false;
-            var matchingDevices = Enumerable.Range(0, WaveIn.DeviceCount)
+            var allDevices = Enumerable.Range(0, WaveIn.DeviceCount)
                 .Select(index => (Index: index, Name: WaveIn.GetCapabilities(index).ProductName))
                 .Select(item => (item.Index, item.Name, Normalized: NormalizeAudioDeviceName(item.Name)))
-                .Where(item => item.Normalized.Length >= 8 &&
+                .ToArray();
+            var matchingDevices = allDevices
+                .Where(item => item.Normalized.Length >= 6 &&
                     (endpointName.Contains(item.Normalized, StringComparison.Ordinal) ||
                      item.Normalized.Contains(endpointName, StringComparison.Ordinal)))
                 .OrderByDescending(item => item.Normalized.Length)
                 .ToArray();
 
+            // Some legacy M-Audio drivers expose a generic MME product name even though
+            // Core Audio identifies the endpoint as Fast Track Pro. Only use the sole MME
+            // input as a fallback when the user explicitly selected that M-Audio endpoint.
+            if (matchingDevices.Length == 0 &&
+                (endpointName.Contains("fasttrack", StringComparison.Ordinal) || endpointName.Contains("maudio", StringComparison.Ordinal)))
+            {
+                var branded = allDevices.Where(item =>
+                    item.Normalized.Contains("fasttrack", StringComparison.Ordinal) ||
+                    item.Normalized.Contains("maudio", StringComparison.Ordinal)).ToArray();
+                matchingDevices = branded.Length > 0 ? branded : allDevices.Length == 1 ? allDevices : [];
+            }
+
+            if (matchingDevices.Length == 0)
+            {
+                var found = allDevices.Length == 0 ? "none" : string.Join(", ", allDevices.Select(x => x.Name));
+                failure = $"No matching Windows legacy input was found for {device.FriendlyName}. Windows lists: {found}.";
+                return false;
+            }
+
+            Exception? lastError = null;
             foreach (var input in matchingDevices)
             foreach (var format in new[] { new WaveFormat(44100, 16, 2), new WaveFormat(48000, 16, 2), new WaveFormat(44100, 16, 1), new WaveFormat(48000, 16, 1) })
             {
@@ -430,17 +454,23 @@ internal sealed class MixerWindow : Form
                     capture = activeCapture;
                     sampleRate = format.SampleRate; channelCount = format.Channels;
                     captureFormat = $"Windows audio fallback · {input.Name} · {format.SampleRate} Hz · {format.Channels} ch · 16-bit PCM";
-                    captureNotice = "WASAPI format rejected · using Windows audio fallback";
+                    captureNotice = $"WASAPI format rejected · using Windows audio fallback ({input.Name})";
                     return true;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    lastError = ex;
                     try { attempt?.Dispose(); } catch { }
                 }
             }
+            failure = $"Windows legacy capture could not open {matchingDevices[0].Name}: {lastError?.Message ?? "no supported PCM format"}.";
+            return false;
         }
-        catch { }
-        return false;
+        catch (Exception ex)
+        {
+            failure = "Windows legacy audio enumeration failed: " + ex.Message;
+            return false;
+        }
     }
 
     private static string NormalizeAudioDeviceName(string? name) =>
