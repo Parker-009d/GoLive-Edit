@@ -118,6 +118,15 @@ internal sealed class MixerWindow : Form
         protected override AudioClientStreamFlags GetAudioClientStreamFlags() => (AudioClientStreamFlags)0;
     }
 
+    private sealed class WasapiCaptureWithAutoConvert : WasapiCapture
+    {
+        public WasapiCaptureWithAutoConvert(MMDevice device, int bufferMilliseconds)
+            : base(device, false, bufferMilliseconds) { }
+
+        protected override AudioClientStreamFlags GetAudioClientStreamFlags() =>
+            AudioClientStreamFlags.AutoConvertPcm | AudioClientStreamFlags.SrcDefaultQuality;
+    }
+
     public MixerWindow()
     {
         Text = "GoLiv Edit Multichannel 24";
@@ -348,8 +357,9 @@ internal sealed class MixerWindow : Form
             using (var audioClient = device.AudioClient) mixFormat = audioClient.MixFormat;
 
             Exception? lastError = null;
-            var formats = GetWasapiCaptureFormats(mixFormat).Select(format => (Format: format, Native: false))
-                .Append((Format: mixFormat, Native: true)).ToArray();
+            var formats = GetWasapiCaptureFormats(mixFormat)
+                .Select((format, index) => (Format: format, Native: index == 0))
+                .ToArray();
             foreach (var (format, useNativeFormat) in formats)
             {
                 WasapiCapture? attempt = null;
@@ -357,7 +367,7 @@ internal sealed class MixerWindow : Form
                 {
                     // Some interface drivers advertise a mix format that WASAPI rejects for capture.
                     // Retry standard shared-mode formats before reporting a device error.
-                    attempt = useNativeFormat ? new WasapiCaptureWithoutAutoConvert(device, 100) { WaveFormat = format } : new WasapiCapture(device, false, 100) { WaveFormat = format };
+                    attempt = useNativeFormat ? new WasapiCaptureWithoutAutoConvert(device, 100) { WaveFormat = format } : new WasapiCaptureWithAutoConvert(device, 100) { WaveFormat = format };
                     var activeCapture = attempt;
                     activeCapture.DataAvailable += (_, e) =>
                     {
