@@ -58,8 +58,11 @@ internal sealed class MixerWindow : Form
     private readonly object recordLock = new();
     private readonly object captureProcessLock = new();
     private Channel<CapturePacket>? captureQueue;
+    private Channel<CapturePacket>? captureMeterQueue;
     private CancellationTokenSource? captureWorkerCancellation;
+    private CancellationTokenSource? captureMeterWorkerCancellation;
     private Task? captureWorker;
+    private Task? captureMeterWorker;
     private sealed record CapturePacket(int Generation, byte[] Buffer, int Length, WaveFormat Format);
     private readonly LocalDSP[] localDSP = Enumerable.Range(0,24).Select(_ => new LocalDSP()).ToArray();
     private readonly LocalFX localFX = new();
@@ -378,12 +381,10 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
-                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
-                        Interlocked.Increment(ref captureBufferCount);
-                        if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                        EnqueueCapturePacket(queue, generation, copy, length, activeCapture.WaveFormat);
                     };
                     activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
                     activeCapture.StartRecording();
@@ -440,12 +441,10 @@ internal sealed class MixerWindow : Form
                     var length = e.BytesRecorded;
                     if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                     Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
-                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                     if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                     var copy = new byte[length];
                     Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
-                    Interlocked.Increment(ref captureBufferCount);
-                    if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                    EnqueueCapturePacket(queue, generation, copy, length, activeCapture.WaveFormat);
                 };
                 activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Capture error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
                 activeCapture.StartRecording();
@@ -528,12 +527,10 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
-                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
-                        Interlocked.Increment(ref captureBufferCount);
-                        if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, activeCapture.WaveFormat))) Interlocked.Increment(ref captureDroppedPackets);
+                        EnqueueCapturePacket(queue, generation, copy, length, activeCapture.WaveFormat);
                     };
                     activeCapture.RecordingStopped += (_, e) => { if (e.Exception is not null) { captureError = "Windows audio fallback error: " + e.Exception.Message; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); } };
                     activeCapture.StartRecording();
@@ -603,7 +600,32 @@ internal sealed class MixerWindow : Form
             }
             catch (OperationCanceledException) { }
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Meter analysis has its own latest-data queue and worker. Device callbacks
+        // only copy/enqueue buffers; they never scan samples or calculate logarithms.
+        var meterQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(3) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
+        captureMeterQueue = meterQueue;
+        captureMeterWorkerCancellation = new CancellationTokenSource();
+        var meterCancellation = captureMeterWorkerCancellation;
+        captureMeterWorker = Task.Factory.StartNew(() =>
+        {
+            try
+            {
+                while (meterQueue.Reader.WaitToReadAsync(meterCancellation.Token).AsTask().GetAwaiter().GetResult())
+                    while (meterQueue.Reader.TryRead(out var packet))
+                        if (packet.Generation == Volatile.Read(ref captureGeneration))
+                            UpdateCaptureMeters(packet.Buffer, packet.Length, packet.Format, packet.Generation);
+            }
+            catch (OperationCanceledException) { }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         return (generation, queue);
+    }
+
+    private void EnqueueCapturePacket(Channel<CapturePacket> queue, int generation, byte[] buffer, int length, WaveFormat format)
+    {
+        Interlocked.Increment(ref captureBufferCount);
+        var packet = new CapturePacket(generation, buffer, length, format);
+        if (!queue.Writer.TryWrite(packet)) Interlocked.Increment(ref captureDroppedPackets);
+        captureMeterQueue?.Writer.TryWrite(packet);
     }
 
     private void StartAsioCapture(string driverName)
@@ -630,12 +652,10 @@ internal sealed class MixerWindow : Form
                 var length = sampleCount * sizeof(float);
                 if (length <= 0) return;
                 Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
-                UpdateCaptureMeters(sampleBuffer.AsSpan(0, sampleCount), channels, generation);
                 if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                 var copy = new byte[length];
                 Buffer.BlockCopy(sampleBuffer, 0, copy, 0, length);
-                Interlocked.Increment(ref captureBufferCount);
-                if (!queue.Writer.TryWrite(new CapturePacket(generation, copy, length, format))) Interlocked.Increment(ref captureDroppedPackets);
+                EnqueueCapturePacket(queue, generation, copy, length, format);
             };
             activeAsio.Play();
             if (selectedOutput is not null) StartMonitorOutput();
@@ -679,13 +699,22 @@ internal sealed class MixerWindow : Form
         try { asioCapture?.Dispose(); } catch { }
         asioCapture = null;
         var queue = captureQueue; captureQueue = null; queue?.Writer.TryComplete();
+        var meterQueue = captureMeterQueue; captureMeterQueue = null; meterQueue?.Writer.TryComplete();
         var worker = captureWorker; captureWorker = null;
+        var meterWorker = captureMeterWorker; captureMeterWorker = null;
         var cancellation = captureWorkerCancellation; captureWorkerCancellation = null;
+        var meterCancellation = captureMeterWorkerCancellation; captureMeterWorkerCancellation = null;
         if (cancellation is not null)
         {
             cancellation.Cancel();
             if (worker is not null) _ = worker.ContinueWith(_ => cancellation.Dispose(), TaskScheduler.Default);
             else cancellation.Dispose();
+        }
+        if (meterCancellation is not null)
+        {
+            meterCancellation.Cancel();
+            if (meterWorker is not null) _ = meterWorker.ContinueWith(_ => meterCancellation.Dispose(), TaskScheduler.Default);
+            else meterCancellation.Dispose();
         }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
@@ -1021,9 +1050,9 @@ internal sealed class MixerWindow : Form
         finally { Volatile.Write(ref statePublishBusy, 0); }
     }
 
-    private async Task PublishMetersAsync()
+    private Task PublishMetersAsync()
     {
-        if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
+        if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return Task.CompletedTask;
         try
         {
             double[] l; bool[] c; double sr; int ch;
@@ -1047,11 +1076,12 @@ internal sealed class MixerWindow : Form
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
-            var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
-            if (web.CoreWebView2 is not null) await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
+            var payload = JsonSerializer.Serialize(new { type = "goLiveAudioLevels", payload = new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info } });
+            web.CoreWebView2.PostWebMessageAsJson(payload);
         }
         catch { }
         finally { Volatile.Write(ref meterPublishBusy, 0); }
+        return Task.CompletedTask;
     }
 
     private async Task PublishSpectrumAsync()
