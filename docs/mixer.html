@@ -1182,6 +1182,15 @@ svg[aria-label^="EQ response across"]{height:250px!important;flex:none;max-width
   .bottom-dock>.lay{grid-template-columns:repeat(4,minmax(0,1fr))}
   .bottom-dock>.mode-panel{max-height:none}
 }
+
+/* Compact meter bridge: keep the signal bar and its highlight narrow. */
+.meter-grid .meter-tile:not(.meter-main){width:min(100%,76px)!important;justify-self:center}
+.meter-grid .meter-tile:not(.meter-main)>.mtr,.meter-grid .meter-main>.mtr{width:5px!important;flex:0 0 5px!important}
+.meter-grid .meter-tile>.val,.meter-grid .meter-tile>span{font-size:11px;min-font-size:11px}
+.meter-grid .meter-tile.meter-selected{background:transparent!important;outline:none!important;padding:0!important;border-radius:0}
+.meter-grid .meter-tile.meter-active:not(.meter-selected){box-shadow:none!important}
+.meter-grid .meter-tile.meter-selected>.mtr{outline:1.5px solid #2f78d1;outline-offset:2px;border-radius:4px;box-shadow:0 0 4px rgba(47,120,209,.65)}
+.meter-grid .meter-tile.meter-active:not(.meter-selected)>.mtr{box-shadow:0 0 0 1px #2fbf71,0 0 4px rgba(47,191,113,.55)}
 </style>
 </head>
 <body>
