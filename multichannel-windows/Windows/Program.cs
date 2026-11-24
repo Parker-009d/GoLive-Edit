@@ -55,6 +55,7 @@ internal sealed class MixerWindow : Form
     private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
+    private readonly object meterLock = new();
     private readonly object recordLock = new();
     private readonly object captureProcessLock = new();
     private Channel<CapturePacket>? captureQueue;
@@ -578,7 +579,7 @@ internal sealed class MixerWindow : Form
         Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
         Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
         Interlocked.Exchange(ref captureLastBufferTicks, 0);
-        lock (audioLock) { Array.Fill(levels, -90d); Array.Clear(clips); }
+        lock (meterLock) { Array.Fill(levels, -90d); Array.Clear(clips); }
         // A short multi-block queue absorbs brief scheduling and GC pauses without
         // dropping live input packets. Keep processing on a dedicated reader thread
         // so ThreadPool delays cannot starve the capture path.
@@ -690,7 +691,7 @@ internal sealed class MixerWindow : Form
         }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
-        lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
+        lock (meterLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
     }
 
     private async Task PublishAudioDevicesAsync()
@@ -854,7 +855,7 @@ internal sealed class MixerWindow : Form
     private void StoreCaptureMeters(Span<double> peak, Span<double> sum, int frames, int channels, int generation)
     {
         var now = DateTime.UtcNow;
-        lock (audioLock)
+        lock (meterLock)
         {
             if (generation != Volatile.Read(ref captureGeneration)) return;
             Array.Fill(levels, -90d);
@@ -1026,10 +1027,11 @@ internal sealed class MixerWindow : Form
         if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
         try
         {
-            double[] l; bool[] c; double sr; int ch;
+            double[] l; bool[] c;
+            double sr = sampleRate; int ch = channelCount;
             var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
             var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(1000).Ticks;
-            lock (audioLock)
+            lock (meterLock)
             {
                 if (staleCapture)
                 {
@@ -1037,7 +1039,7 @@ internal sealed class MixerWindow : Form
                     Array.Clear(clips);
                     captureHasSignal = false;
                 }
-                l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
+                l = levels.ToArray(); c = clips.ToArray();
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
