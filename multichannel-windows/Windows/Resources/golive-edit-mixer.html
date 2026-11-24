@@ -1244,7 +1244,7 @@ inst.__r();if(inst.componentDidMount)inst.componentDidMount();return inst}
 
 const hostCfg=window.__GO_LIVE_CONFIG__||{};
 let realInputLevels=Array(24).fill(-90);
-let displayInputLevels=Array(24).fill(-90),fxSendMeters=Array(4).fill(-90),fxReturnMeters=Array(4).fill(-90);
+let displayInputLevels=Array(24).fill(-90),displayInputHoldUntil=Array(24).fill(0),fxSendMeters=Array(4).fill(-90),fxReturnMeters=Array(4).fill(-90);
 let obsMeterTargets={},displayOBSMeterLevels=Array(24).fill(-90);
 let realInputSpectra=Array.from({length:24},()=>Array(48).fill(-90));
 let demoMeterTimer=null,demoMeterTime=0,meterDemoMode=null;
@@ -1331,7 +1331,7 @@ this.gg[i]+=(gT-this.gg[i])*(gT>this.gg[i]?0.5:0.3);x-=this.gg[i];
 if(c.cOn){cT=Math.max(0,x-c.c[0])*(1-1/c.c[1]);x=x-cT+c.c[4]}}else this.gg[i]=0;
 this.gc[i]=cT;this.pl[i]=x;let o=x+c.db;if(c.mute||(anyS&&!c.solo))o=-90;pf.push(o)});
 const sum=pf.reduce((a,v)=>a+Math.pow(10,v/10),0),m=s.main.mute?-90:10*Math.log10(sum+1e-9)+s.main.db,raw=[...pf,m],now=Date.now(),dt=cl((now-this.lastMeterAt)/1000,0.008,0.08);this.lastMeterAt=now;
-for(let i=0;i<24;i++){const previous=displayInputLevels[i]??-90,raw=Number(realInputLevels[i]),target=Number.isFinite(raw)?cl(raw,-90,6):-90,delta=target-previous,tau=delta>0?0.01:0.12,alpha=1-Math.exp(-dt/tau);displayInputLevels[i]=Math.abs(delta)<0.2?previous:previous+delta*alpha}
+for(let i=0;i<24;i++){const previous=displayInputLevels[i]??-90,raw=Number(realInputLevels[i]),target=Number.isFinite(raw)?cl(raw,-90,6):-90,delta=target-previous;if(target>previous+0.2){displayInputLevels[i]=target;displayInputHoldUntil[i]=now+150}else if(now>=displayInputHoldUntil[i]){const tau=delta>0?0.01:0.25,alpha=1-Math.exp(-dt/tau);displayInputLevels[i]=Math.abs(delta)<0.2?previous:previous+delta*alpha}}
 for(let i=0;i<24;i++){const source=String((s.obsSources||[])[i]||''),usingOBS=!!(s.obs&&source),raw=usingOBS?Number(obsMeterTargets[source]??-90):Number(realInputLevels[inputIndex(s.ch[i],i)]??-90),target=Number.isFinite(raw)?cl(raw,-90,6):-90,previous=displayOBSMeterLevels[i]??-90,delta=target-previous,tau=delta>0?0.035:0.28,alpha=1-Math.exp(-dt/tau);displayOBSMeterLevels[i]=Math.abs(delta)<0.15?previous:previous+delta*alpha}
 this.mv=raw.map((v,i)=>{const muted=i===s.ch.length?s.main.mute:(s.main.mute||s.ch[i].mute||(anyS&&!s.ch[i].solo));if(muted)return -90;const previous=this.mv[i]??-90,tau=v>previous?0.035:0.28,alpha=1-Math.exp(-dt/tau);return Math.max(-90,previous+(v-previous)*alpha)});
 this.state.lv=this.mv.slice();this.state.ggs=this.gg.slice();this.state.gcs=this.gc.slice();this.state.now=now;this.paintLiveMeters();if(s.rec&&now-(this.lastTimerRender||0)>=1000){this.lastTimerRender=now;this.forceUpdate()}}
