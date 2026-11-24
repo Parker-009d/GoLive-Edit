@@ -1580,7 +1580,7 @@ try{if(hostCfg.lastScene){const restored=JSON.parse(hostCfg.lastScene);window.__
 (function(){
 if(window.chrome&&window.chrome.webview)return;
 hostCfg.audioInputs=[];hostCfg.audioInputIndex=-1;hostCfg.audioChannelCount=0;hostCfg.audioOutputs=[];hostCfg.audioOutputIndex=-1;
-const startBrowserPreview=()=>{if(window.__goLiveAudioInputs)window.__goLiveAudioInputs({names:[],index:-1,channels:0,outputs:[],outputIndex:-1,status:'Browser demo · simulated signal only'})};
+const startBrowserPreview=()=>{if(window.__goLiveAudioInputs)window.__goLiveAudioInputs({names:[],index:-1,channels:0,outputs:[],outputIndex:-1,status:'Browser demo · simulated signal only'});if(window.goLiveMixer&&window.goLiveMixer.state.page!=='channel')window.goLiveMixer.setState({page:'channel'})};
 if(window.goLiveMixer)startBrowserPreview();else window.addEventListener('load',startBrowserPreview,{once:true});
 })();
 </script>
