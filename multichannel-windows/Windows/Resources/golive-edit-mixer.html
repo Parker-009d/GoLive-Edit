@@ -1512,5 +1512,12 @@ try{if(hostCfg.lastScene){const restored=JSON.parse(hostCfg.lastScene);window.__
   document.addEventListener('keydown',event=>{if(event.key==='Escape')close()});
 })();
 </script>
+<script>
+if (window.chrome && window.chrome.webview) {
+  window.chrome.webview.addEventListener('message', event => {
+    if (window.__goLiveSetAudioLevels) window.__goLiveSetAudioLevels(event.data);
+  });
+}
+</script>
 </body>
 </html>
