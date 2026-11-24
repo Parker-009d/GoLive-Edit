@@ -135,7 +135,9 @@ internal sealed class MixerWindow : Form
     {
         Text = "GoLiv Edit Multichannel 24";
         MinimumSize = new Size(760, 620);
-        ClientSize = new Size(1420, 940);
+        int availableHeight = Screen.PrimaryScreen?.WorkingArea.Height ?? 1080;
+        int clientHeight = Math.Clamp(availableHeight - 48, 620, 1120);
+        ClientSize = new Size(1420, clientHeight);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.Black;
         Icon = new Icon(ResourcePath("GoLive.ico"));
