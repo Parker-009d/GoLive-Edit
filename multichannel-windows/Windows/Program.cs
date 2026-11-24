@@ -859,14 +859,16 @@ internal sealed class MixerWindow : Form
         lock (meterLock)
         {
             if (generation != Volatile.Read(ref captureGeneration)) return;
-            Array.Fill(levels, -90d);
             var maxLevel = -90d;
             for (var channel = 0; channel < channels; channel++)
             {
                 var level = Math.Max(-90, Math.Max(
                     20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))),
                     20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
-                levels[channel] = level;
+                // Preserve the strongest callback block until the 30 Hz
+                // publisher snapshots and clears the meter window. Short ASIO
+                // transients must not be overwritten by following quiet blocks.
+                levels[channel] = Math.Max(levels[channel], level);
                 maxLevel = Math.Max(maxLevel, level);
                 if (level > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
@@ -1040,6 +1042,7 @@ internal sealed class MixerWindow : Form
                 captureHasSignal = false;
             }
             l = levels.ToArray(); c = clips.ToArray();
+            Array.Fill(levels, -90d);
         }
         var fxLevels = localFX.ReadMeters();
         var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
