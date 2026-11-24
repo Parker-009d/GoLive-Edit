@@ -86,7 +86,7 @@ internal sealed class MixerWindow : Form
     private readonly float[][] spectrumRing = Enumerable.Range(0, 24).Select(_ => new float[2048]).ToArray();
     private static readonly double[] SpectrumWindow = Enumerable.Range(0, 2048).Select(i => .5 - .5 * Math.Cos(2 * Math.PI * i / 2047)).ToArray();
     private int spectrumBusy;
-    private int meterPublishBusy, statePublishBusy, devicePublishBusy, captureGeneration;
+    private int statePublishBusy, devicePublishBusy, captureGeneration;
     private long captureBufferCount, captureDroppedPackets, captureLastBufferTicks;
     private int spectrumIndex;
     private int spectrumFilled;
@@ -144,7 +144,7 @@ internal sealed class MixerWindow : Form
         FormClosing += (_, _) => { stateTimer.Stop(); meterTimer.Stop(); spectrumTimer.Stop(); deviceTimer.Stop(); StopCapture(); StopRecording(); _ = obs.DisconnectAsync(); remote?.Close(); selectedDevice?.Dispose(); selectedOutput?.Dispose(); enumerator.Dispose(); };
         stateTimer.Tick += async (_, _) => await PublishMixerStateAsync();
         deviceTimer.Tick += async (_, _) => await PublishAudioDevicesAsync();
-        meterTimer.Tick += async (_, _) => await PublishMetersAsync();
+        meterTimer.Tick += (_, _) => PublishMeters();
         spectrumTimer.Tick += async (_, _) => await PublishSpectrumAsync();
         obs.StatusChanged += (text, connected) => { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = SetObsStatusAsync(text, connected)); };
         obs.InputsReceived += names => { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishObsInputsAsync(names)); };
@@ -1023,32 +1023,28 @@ internal sealed class MixerWindow : Form
         finally { Volatile.Write(ref statePublishBusy, 0); }
     }
 
-    private async Task PublishMetersAsync()
+    private void PublishMeters()
     {
-        if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
-        try
+        var core = web.CoreWebView2;
+        if (core is null) return;
+        double[] l; bool[] c;
+        double sr = sampleRate; int ch = channelCount;
+        var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
+        var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(1000).Ticks;
+        lock (meterLock)
         {
-            double[] l; bool[] c;
-            double sr = sampleRate; int ch = channelCount;
-            var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
-            var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(1000).Ticks;
-            lock (meterLock)
+            if (staleCapture)
             {
-                if (staleCapture)
-                {
-                    Array.Fill(levels, -90d);
-                    Array.Clear(clips);
-                    captureHasSignal = false;
-                }
-                l = levels.ToArray(); c = clips.ToArray();
+                Array.Fill(levels, -90d);
+                Array.Clear(clips);
+                captureHasSignal = false;
             }
-            var fxLevels = localFX.ReadMeters();
-            var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
-            var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
-            await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
+            l = levels.ToArray(); c = clips.ToArray();
         }
-        catch { }
-        finally { Volatile.Write(ref meterPublishBusy, 0); }
+        var fxLevels = localFX.ReadMeters();
+        var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
+        var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
+        try { core.PostWebMessageAsJson(payload); } catch { }
     }
 
     private sealed record SpectrumSnapshot(double SampleRate, int Channels, int Route, int Filled, float[] Samples);
