@@ -376,6 +376,7 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -437,6 +438,7 @@ internal sealed class MixerWindow : Form
                     var length = e.BytesRecorded;
                     if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                     Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                     if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                     var copy = new byte[length];
                     Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -524,6 +526,7 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -624,6 +627,7 @@ internal sealed class MixerWindow : Form
                 var length = sampleCount * sizeof(float);
                 if (length <= 0) return;
                 Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                UpdateCaptureMeters(sampleBuffer.AsSpan(0, sampleCount), channels, generation);
                 if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                 var copy = new byte[length];
                 Buffer.BlockCopy(sampleBuffer, 0, copy, 0, length);
@@ -721,17 +725,13 @@ internal sealed class MixerWindow : Form
     {
         if (generation != Volatile.Read(ref captureGeneration) || format is null || length < format.BlockAlign) return;
         var frames = length / format.BlockAlign; var channels = format.Channels;
-        var samples = new float[frames * channels]; var meterChannels = Math.Min(24, channels);
+        var samples = new float[frames * channels];
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
         {
             var offset = frame * format.BlockAlign + c * (format.BitsPerSample / 8);
             float v = ReadCaptureSample(bytes, offset, format);
             samples[frame * channels + c] = v;
         }
-        // Meter the exact decoded samples used by recording and playback. Measuring
-        // the driver callback separately can disagree with the audio that reaches
-        // CaptureAudio when a driver reuses or mutates its callback buffer.
-        UpdateCaptureMeters(samples, frames, channels, generation);
         if (generation != Volatile.Read(ref captureGeneration)) return;
         JsonElement state; long stateVersion;
         lock (audioLock) { state = mixerState; stateVersion = mixerStateVersion; }
@@ -801,9 +801,35 @@ internal sealed class MixerWindow : Form
         try { var monitorBytes = format.SampleRate == monitorSampleRate ? output : monitorResampler.Process(output, frames, format.SampleRate, monitorSampleRate); monitorBuffer?.AddSamples(monitorBytes, 0, monitorBytes.Length); } catch { }
     }
 
-    private void UpdateCaptureMeters(float[] samples, int frames, int sourceChannels, int generation)
+    // Measure level envelopes at the device callback, before packets enter the
+    // DSP/monitor queue. Meter freshness must not depend on downstream processing.
+    private void UpdateCaptureMeters(byte[] bytes, int length, WaveFormat format, int generation)
+    {
+        var sourceChannels = format.Channels;
+        var channels = Math.Min(24, sourceChannels);
+        var frames = length / format.BlockAlign;
+        if (frames <= 0 || channels <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
+        Span<double> peak = stackalloc double[24];
+        Span<double> sum = stackalloc double[24];
+        peak.Clear();
+        sum.Clear();
+        for (var frame = 0; frame < frames; frame++)
+            for (var channel = 0; channel < channels; channel++)
+            {
+                var offset = frame * format.BlockAlign + channel * (format.BitsPerSample / 8);
+                var sample = ReadCaptureSample(bytes, offset, format);
+                if (!float.IsFinite(sample)) continue;
+                var magnitude = Math.Abs(sample);
+                if (magnitude > peak[channel]) peak[channel] = magnitude;
+                sum[channel] += sample * sample;
+            }
+        StoreCaptureMeters(peak, sum, frames, channels, generation);
+    }
+
+    private void UpdateCaptureMeters(ReadOnlySpan<float> samples, int sourceChannels, int generation)
     {
         var channels = Math.Min(24, sourceChannels);
+        var frames = sourceChannels > 0 ? samples.Length / sourceChannels : 0;
         if (frames <= 0 || channels <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
         Span<double> peak = stackalloc double[24];
         Span<double> sum = stackalloc double[24];
@@ -818,20 +844,28 @@ internal sealed class MixerWindow : Form
                 if (magnitude > peak[channel]) peak[channel] = magnitude;
                 sum[channel] += sample * sample;
             }
+        StoreCaptureMeters(peak, sum, frames, channels, generation);
+    }
+
+    private void StoreCaptureMeters(Span<double> peak, Span<double> sum, int frames, int channels, int generation)
+    {
         var now = DateTime.UtcNow;
         lock (audioLock)
         {
             if (generation != Volatile.Read(ref captureGeneration)) return;
             Array.Fill(levels, -90d);
+            var maxLevel = -90d;
             for (var channel = 0; channel < channels; channel++)
             {
-                levels[channel] = Math.Max(-90, Math.Max(
+                var level = Math.Max(-90, Math.Max(
                     20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))),
                     20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
-                if (levels[channel] > SignalThresholdDb) captureHasSignal = true;
+                levels[channel] = level;
+                maxLevel = Math.Max(maxLevel, level);
+                if (level > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
             }
-            Interlocked.Exchange(ref capturePeakHundredthsDb, (long)Math.Round((channels > 0 ? levels.Take(channels).Max() : -90) * 100));
+            Interlocked.Exchange(ref capturePeakHundredthsDb, (long)Math.Round(maxLevel * 100));
             for (var channel = 0; channel < clips.Length; channel++) clips[channel] = now < clipUntil[channel];
         }
     }
