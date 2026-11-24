@@ -695,36 +695,60 @@ internal sealed class MixerWindow : Form
         lock (meterLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
     }
 
-    private async Task PublishAudioDevicesAsync()
+    private sealed record AudioDeviceSnapshot(string[] InputIds, string[] InputNames, string[] OutputIds, string[] OutputNames, string[] AsioNames);
+
+    private static AudioDeviceSnapshot EnumerateAudioDeviceSnapshot()
     {
-        if (web.CoreWebView2 is null || Interlocked.Exchange(ref devicePublishBusy, 1) != 0) return;
-        List<MMDevice>? inputs = null; List<MMDevice>? outputs = null;
+        using var deviceEnumerator = new MMDeviceEnumerator();
+        var inputs = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
+        var outputs = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
         try
         {
-            inputs = GetInputs(); outputs = GetOutputs();
-            try { asioDriverNames = AsioOut.GetDriverNames(); } catch { asioDriverNames = []; }
-            var names = audioBackend == "ASIO" ? asioDriverNames : inputs.Select(AudioDeviceLabel).ToArray();
-            var index = audioBackend == "ASIO" ? Array.IndexOf(asioDriverNames, selectedAsioDriver) : selectedDevice is null ? -1 : inputs.FindIndex(x => x.ID == selectedDevice.ID);
-            // Hold the last published selection during a brief Windows endpoint-enumeration gap.
-            // A real capture stop/error will still publish immediately and expose the failure.
-            if ((audioBackend == "WASAPI" && selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
-                (selectedOutput is not null && outputs.All(x => x.ID != selectedOutput.ID) && string.IsNullOrEmpty(captureError))) return;
-            var channels = capture is not null ? capture.WaveFormat.Channels : asioCapture is not null ? channelCount : 0;
-            var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
-            inputDeviceIds = inputs.Select(x => x.ID).ToArray(); outputDeviceIds = outputs.Select(x => x.ID).ToArray();
-            var hasInput = audioBackend == "ASIO" ? asioCapture is not null : selectedDevice is not null;
-            var connectedStatus = $"{audioBackend} connected · {(sampleRate / 1000):0.0} kHz · {channels} ch";
-            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? $"{captureNotice} · {(sampleRate / 1000):0.0} kHz · {channels} ch" : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : connectedStatus;
-            var json = JsonSerializer.Serialize(new { backend = audioBackend, names, index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
-            await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
+            string[] inputIds = inputs.Select(x => x.ID).ToArray();
+            string[] inputNames = inputs.Select(AudioDeviceLabel).ToArray();
+            string[] outputIds = outputs.Select(x => x.ID).ToArray();
+            string[] outputNames = outputs.Select(AudioDeviceLabel).ToArray();
+            string[] asioNames;
+            try { asioNames = AsioOut.GetDriverNames(); } catch { asioNames = []; }
+            return new AudioDeviceSnapshot(inputIds, inputNames, outputIds, outputNames, asioNames);
         }
-        catch { }
         finally
         {
-            if (inputs is not null) DisposeDevices(inputs);
-            if (outputs is not null) DisposeDevices(outputs);
-            Volatile.Write(ref devicePublishBusy, 0);
+            DisposeDevices(inputs);
+            DisposeDevices(outputs);
         }
+    }
+
+    private async Task PublishAudioDevicesAsync()
+    {
+        var core = web.CoreWebView2;
+        if (core is null || Interlocked.Exchange(ref devicePublishBusy, 1) != 0) return;
+        var backend = audioBackend;
+        try
+        {
+            // Endpoint and ASIO driver enumeration can block. Use a short-lived
+            // enumerator on a worker so the 2 s WinForms timer never stalls the UI.
+            var snapshot = await Task.Run(EnumerateAudioDeviceSnapshot);
+            if (backend != audioBackend || web.IsDisposed) return;
+            asioDriverNames = snapshot.AsioNames;
+            var names = backend == "ASIO" ? snapshot.AsioNames : snapshot.InputNames;
+            var index = backend == "ASIO" ? Array.IndexOf(snapshot.AsioNames, selectedAsioDriver) : selectedDevice is null ? -1 : Array.IndexOf(snapshot.InputIds, selectedDevice.ID);
+            // Hold the last published selection during a brief Windows endpoint-enumeration gap.
+            // A real capture stop/error will still publish immediately and expose the failure.
+            if ((backend == "WASAPI" && selectedDevice is not null && index < 0 && capture is not null && string.IsNullOrEmpty(captureError)) ||
+                (selectedOutput is not null && !snapshot.OutputIds.Contains(selectedOutput.ID) && string.IsNullOrEmpty(captureError))) return;
+            var channels = capture is not null ? capture.WaveFormat.Channels : asioCapture is not null ? channelCount : 0;
+            var outputIndex = selectedOutput is null ? -1 : Array.IndexOf(snapshot.OutputIds, selectedOutput.ID);
+            inputDeviceIds = snapshot.InputIds;
+            outputDeviceIds = snapshot.OutputIds;
+            var hasInput = backend == "ASIO" ? asioCapture is not null : selectedDevice is not null;
+            var connectedStatus = $"{backend} connected · {(sampleRate / 1000):0.0} kHz · {channels} ch";
+            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (backend == "ASIO" && snapshot.AsioNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : backend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? $"{captureNotice} · {(sampleRate / 1000):0.0} kHz · {channels} ch" : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : connectedStatus;
+            var json = JsonSerializer.Serialize(new { backend, names, index, channels, outputs = snapshot.OutputNames, outputIndex, status });
+            await core.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
+        }
+        catch { }
+        finally { Volatile.Write(ref devicePublishBusy, 0); }
     }
 
     private void CaptureAudio(byte[] bytes, int length, WaveFormat? format, int generation)
