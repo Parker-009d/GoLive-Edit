@@ -690,7 +690,7 @@ internal sealed class MixerWindow : Form
         }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
-        lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); Array.Fill(meterWindowLevels, -90d); clips = new bool[24]; }
+        lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
     }
 
     private async Task PublishAudioDevicesAsync()
