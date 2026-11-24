@@ -1038,7 +1038,12 @@ internal sealed class MixerWindow : Form
                     Array.Clear(clips);
                     captureHasSignal = false;
                 }
-                l = meterWindowLevels.ToArray(); Array.Fill(meterWindowLevels, -90d); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
+                l = meterWindowLevels.ToArray();
+                // WASAPI may deliver 50 ms blocks while this timer publishes every 33 ms.
+                // Reuse the most recent block level on intervening ticks instead of sending
+                // -90 dB and making the live meter appear to drop out between callbacks.
+                for (var channel = 0; channel < l.Length; channel++) l[channel] = Math.Max(l[channel], levels[channel]);
+                Array.Fill(meterWindowLevels, -90d); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
