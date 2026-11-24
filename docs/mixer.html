@@ -1230,15 +1230,40 @@ html,body{height:100%;overflow:hidden}
 #root{display:flex!important;flex:1 0 auto;width:auto!important;min-width:100%;min-height:100%}
 @media(max-width:1180px){.main-grid{grid-template-columns:78px minmax(0,1fr) 132px!important}.bottom-dock.bottom-dock{grid-template-columns:230px 60px minmax(0,1fr)!important}}
 
-/* Compact-width dock: keep Local Live, bank controls, and faders in full-width rows. */
-@media(max-width:1180px){
- .bottom-dock.bottom-dock{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto minmax(300px,1fr)!important;gap:4px!important;padding-left:4px!important;padding-right:4px!important;min-width:0!important}
- .bottom-dock>.mode-panel{grid-column:1!important;grid-row:1!important;width:100%!important;max-height:300px!important;margin:0!important}
- .bottom-dock>.lay{grid-column:1!important;grid-row:2!important;width:100%!important;max-height:112px!important;display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;grid-auto-rows:24px!important;overflow-y:auto!important;overflow-x:hidden!important;padding:3px!important}
- .bottom-dock>.lay .bn{height:22px;min-width:0;overflow:hidden;text-overflow:ellipsis}
- .bottom-dock>.fader-viewport{grid-column:1!important;grid-row:3!important;width:100%!important;min-width:0!important;min-height:300px!important}
+
+/* Responsive mixer layout: preserve clear zones and reflow controls instead of squeezing them. */
+@media(max-width:1580px){
+ .main-grid{grid-template-columns:84px minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr) auto!important;align-items:stretch!important;gap:6px!important}
+ .main-grid>.stp{grid-column:1!important;grid-row:1!important}
+ .main-grid>div:nth-child(2){grid-column:2!important;grid-row:1!important;min-width:0!important}
+ .main-grid>.utility-rail{grid-column:1/-1!important;grid-row:2!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;max-height:140px!important;overflow:auto!important}
+ .main-grid>.utility-rail>.utility-remote{grid-column:span 2}
+ .bottom-dock.bottom-dock{grid-template-columns:minmax(250px,320px) 64px minmax(0,1fr)!important;grid-template-rows:minmax(340px,1fr)!important;gap:6px!important;min-width:0!important}
+ .bottom-dock>.mode-panel{grid-column:1!important;grid-row:1!important;width:100%!important;max-height:300px!important;margin:0!important;overflow:auto!important}
+ .bottom-dock>.lay{grid-column:2!important;grid-row:1!important;width:64px!important;max-height:300px!important;overflow:auto!important}
+ .bottom-dock>.fader-viewport{grid-column:3!important;grid-row:1!important;width:100%!important;min-width:0!important;min-height:340px!important}
 }
-@media(max-width:620px){.bottom-dock>.lay{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+@media(max-width:1180px){
+ .main-grid{grid-template-columns:78px minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr) auto!important}
+ .bottom-dock.bottom-dock{grid-template-columns:minmax(250px,320px) minmax(0,1fr)!important;grid-template-rows:auto minmax(340px,1fr)!important;gap:6px!important}
+ .bottom-dock>.mode-panel{grid-column:1!important;grid-row:1!important;width:100%!important;max-height:260px!important}
+ .bottom-dock>.lay{grid-column:2!important;grid-row:1!important;width:100%!important;max-height:260px!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;grid-auto-rows:24px!important;align-content:start;overflow:auto!important;padding:4px!important;gap:4px!important}
+ .bottom-dock>.lay .bn{height:22px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+ .bottom-dock>.fader-viewport{grid-column:1/-1!important;grid-row:2!important;width:100%!important;min-width:0!important;min-height:340px!important}
+}
+@media(max-width:620px){
+ .m.m{height:auto!important;min-height:calc(100vh / var(--z))!important;overflow:visible!important;grid-template-rows:auto minmax(360px,auto) auto!important}
+ #wrap{align-items:flex-start!important}
+ .main-grid{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto auto!important}
+ .main-grid>.stp{grid-column:1!important;grid-row:1!important;width:92px!important}
+ .main-grid>div:nth-child(2){grid-column:1!important;grid-row:2!important;display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:5px!important}
+ .main-grid>.utility-rail{grid-column:1!important;grid-row:3!important;grid-template-columns:1fr!important;max-height:none!important}
+ .main-grid>.utility-rail>.utility-remote{grid-column:auto!important}
+ .bottom-dock.bottom-dock{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto minmax(340px,1fr)!important}
+ .bottom-dock>.mode-panel{grid-column:1!important;grid-row:1!important;max-height:240px!important}
+ .bottom-dock>.lay{grid-column:1!important;grid-row:2!important;width:100%!important;max-height:112px!important;grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ .bottom-dock>.fader-viewport{grid-column:1!important;grid-row:3!important;min-height:340px!important}
+}
 </style>
 </head>
 <body>
