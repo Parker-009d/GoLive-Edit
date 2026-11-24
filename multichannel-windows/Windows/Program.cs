@@ -1050,9 +1050,9 @@ internal sealed class MixerWindow : Form
         finally { Volatile.Write(ref statePublishBusy, 0); }
     }
 
-    private Task PublishMetersAsync()
+    private async Task PublishMetersAsync()
     {
-        if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return Task.CompletedTask;
+        if (web.CoreWebView2 is null || Interlocked.Exchange(ref meterPublishBusy, 1) != 0) return;
         try
         {
             double[] l; bool[] c; double sr; int ch;
@@ -1076,12 +1076,11 @@ internal sealed class MixerWindow : Form
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
-            var payload = JsonSerializer.Serialize(new { type = "goLiveAudioLevels", payload = new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info } });
-            web.CoreWebView2.PostWebMessageAsJson(payload);
+            var payload = JsonSerializer.Serialize(new { levels = l, fxSendLevels = fxLevels.Sends, fxReturnLevels = fxLevels.Returns, info });
+            await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
         }
         catch { }
         finally { Volatile.Write(ref meterPublishBusy, 0); }
-        return Task.CompletedTask;
     }
 
     private async Task PublishSpectrumAsync()
