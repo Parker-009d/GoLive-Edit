@@ -602,7 +602,9 @@ internal sealed class MixerWindow : Form
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         // Meter analysis has its own latest-data queue and worker. Device callbacks
         // only copy/enqueue buffers; they never scan samples or calculate logarithms.
-        var meterQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(3) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
+        // Preserve short bursts of mic input if the meter worker gets briefly descheduled.
+        // A three-packet queue could evict the tap before analysis.
+        var meterQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
         captureMeterQueue = meterQueue;
         captureMeterWorkerCancellation = new CancellationTokenSource();
         var meterCancellation = captureMeterWorkerCancellation;
