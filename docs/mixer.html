@@ -1052,7 +1052,7 @@ svg[aria-label^="EQ response across"]{height:250px!important;flex:none;max-width
 @media(prefers-reduced-motion:reduce){.fader-page{animation-duration:100ms}}
 .mode-panel{flex:0 1 610px;width:610px;max-width:calc(100vw - 310px);min-width:340px;align-self:flex-start;box-sizing:border-box;margin:8px 0 0 10px;gap:6px!important;max-height:245px;overflow:auto}
 .mode-panel{display:block;width:calc(100% - 16px);max-width:none;min-width:0;min-height:0;max-height:none;margin:4px 8px 8px;align-self:stretch;overflow:visible;flex:none}
-@media(max-width:1180px){.m{min-width:1300px!important}
+@media(max-width:1180px){.m{min-width:0!important}
   .tab{height:46px;gap:5px;padding:0 9px 0 6px;font-size:11px}
   .tab svg{width:24px;height:24px}
   .main-grid{grid-template-columns:78px minmax(0,1fr) 170px;gap:5px;padding:5px}
@@ -1114,7 +1114,7 @@ svg[aria-label^="EQ response across"]{height:250px!important;flex:none;max-width
 .utility-remote>.no{margin-top:4px;font-size:10px}
 .utility-remote>.val{padding:4px;margin:2px 0;font-size:10px}
 .utility-remote>button{height:28px;font-size:10px}
-@media(max-width:1180px){.m{min-width:1300px!important}.utility-rail{padding:3px;gap:5px}.utility-rail>.sec{padding:6px}.utility-rail>.sec>h3{font-size:12px}}
+@media(max-width:1180px){.m{min-width:0!important}.utility-rail{padding:3px;gap:5px}.utility-rail>.sec{padding:6px}.utility-rail>.sec>h3{font-size:12px}}
 .mode-panel{position:static;order:2;z-index:auto;display:block;flex:0 1 610px;width:610px;max-width:calc(100vw - 330px);min-width:340px;max-height:245px;margin:8px 0 0 10px;overflow:auto;box-sizing:border-box;background:#10151c;border:1px solid #3a4654;border-radius:4px}.live-form{display:grid;grid-template-columns:90px minmax(0,1.25fr) 96px minmax(0,1fr);gap:4px 6px;align-items:center}.obs-form{display:grid;grid-template-columns:70px minmax(0,1fr) 70px minmax(0,1fr);gap:5px 6px;align-items:center}@media(max-width:740px){.live-form,.obs-form{grid-template-columns:84px minmax(0,1fr)}}@media(max-width:560px){.live-form,.obs-form{grid-template-columns:78px minmax(0,1fr);gap:4px}}
 /* Keep the 24-channel bank scrollable while reserving a readable width for
    Local Live / OBS instead of letting flexbox crush the controls. */
@@ -1153,6 +1153,32 @@ svg[aria-label^="EQ response across"]{height:250px!important;flex:none;max-width
 .meter-grid .meter-main{grid-column:13;grid-row:1/span 2;background:#151b22;border-left:2px solid #46596d}
 .meter-grid .meter-main{background:#151b22;border-left:2px solid #46596d}
 .meter-grid .meter-tile:not(.meter-main){background:linear-gradient(180deg,rgba(22,27,32,.55),rgba(5,5,5,.15))}
+/* Compact window layout: let the mixer reflow instead of enforcing a 1300px canvas. */
+@media(max-width:1180px){
+  .m{min-width:0!important}
+  .main-grid{grid-template-columns:84px minmax(0,1fr) 138px!important;gap:5px;padding:5px}
+  .utility-rail{padding:3px;gap:4px}
+  .utility-rail>.sec{padding:5px}
+}
+@media(max-width:900px){
+  .main-grid{grid-template-columns:92px minmax(0,1fr)!important;grid-template-rows:auto auto;align-items:start}
+  .main-grid>.utility-rail{grid-column:1/-1;grid-row:2;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));max-height:160px;overflow:auto}
+  .main-grid>.utility-rail>.utility-remote{grid-column:span 2}
+  .bottom-dock{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto auto;gap:4px;padding-left:4px;padding-right:4px}
+  .bottom-dock>.mode-panel{grid-column:1;grid-row:1;width:100%;max-height:220px;margin:0}
+  .bottom-dock>.lay{grid-column:1;grid-row:2;width:100%;max-height:112px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-auto-rows:24px;overflow-y:auto;overflow-x:hidden;padding:3px}
+  .bottom-dock>.lay .bn{height:22px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .bottom-dock>.fader-viewport{grid-column:1;grid-row:3;width:100%;min-height:300px}
+}
+@media(max-width:620px){
+  .main-grid{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto auto}
+  .main-grid>.stp{grid-column:1;grid-row:1;width:92px}
+  .main-grid>div:nth-child(2){grid-column:1;grid-row:2;display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:5px;min-height:0!important}
+  .main-grid>.utility-rail{grid-column:1;grid-row:3;grid-template-columns:1fr;max-height:none}
+  .main-grid>.utility-rail>.utility-remote{grid-column:auto}
+  .bottom-dock>.lay{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .bottom-dock>.mode-panel{max-height:none}
+}
 </style>
 </head>
 <body>
