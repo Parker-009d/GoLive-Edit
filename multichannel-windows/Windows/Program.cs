@@ -58,11 +58,8 @@ internal sealed class MixerWindow : Form
     private readonly object recordLock = new();
     private readonly object captureProcessLock = new();
     private Channel<CapturePacket>? captureQueue;
-    private Channel<CapturePacket>? captureMeterQueue;
     private CancellationTokenSource? captureWorkerCancellation;
-    private CancellationTokenSource? captureMeterWorkerCancellation;
     private Task? captureWorker;
-    private Task? captureMeterWorker;
     private sealed record CapturePacket(int Generation, byte[] Buffer, int Length, WaveFormat Format);
     private readonly LocalDSP[] localDSP = Enumerable.Range(0,24).Select(_ => new LocalDSP()).ToArray();
     private readonly LocalFX localFX = new();
@@ -92,8 +89,6 @@ internal sealed class MixerWindow : Form
     private int spectrumIndex;
     private int spectrumFilled;
     private double[] levels = Enumerable.Repeat(-90d, 24).ToArray();
-    // Peak envelope accumulated between 33 ms WebView meter publications so short mic taps aren't skipped.
-    private double[] meterWindowLevels = Enumerable.Repeat(-90d, 24).ToArray();
     private bool[] clips = new bool[24];
     private DateTime[] clipUntil = new DateTime[24];
     private double sampleRate;
@@ -381,6 +376,7 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -441,6 +437,7 @@ internal sealed class MixerWindow : Form
                     var length = e.BytesRecorded;
                     if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                     Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                    UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                     if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                     var copy = new byte[length];
                     Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -527,6 +524,7 @@ internal sealed class MixerWindow : Form
                         var length = e.BytesRecorded;
                         if (length <= 0 || generation != Volatile.Read(ref captureGeneration)) return;
                         Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                        UpdateCaptureMeters(e.Buffer, length, activeCapture.WaveFormat, generation);
                         if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                         var copy = new byte[length];
                         Buffer.BlockCopy(e.Buffer, 0, copy, 0, length);
@@ -580,7 +578,7 @@ internal sealed class MixerWindow : Form
         Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
         Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
         Interlocked.Exchange(ref captureLastBufferTicks, 0);
-        lock (audioLock) { Array.Fill(levels, -90d); Array.Fill(meterWindowLevels, -90d); Array.Clear(clips); }
+        lock (audioLock) { Array.Fill(levels, -90d); Array.Clear(clips); }
         // A short multi-block queue absorbs brief scheduling and GC pauses without
         // dropping live input packets. Keep processing on a dedicated reader thread
         // so ThreadPool delays cannot starve the capture path.
@@ -600,25 +598,6 @@ internal sealed class MixerWindow : Form
             }
             catch (OperationCanceledException) { }
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        // Meter analysis has its own latest-data queue and worker. Device callbacks
-        // only copy/enqueue buffers; they never scan samples or calculate logarithms.
-        // Preserve short bursts of mic input if the meter worker gets briefly descheduled.
-        // A three-packet queue could evict the tap before analysis.
-        var meterQueue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
-        captureMeterQueue = meterQueue;
-        captureMeterWorkerCancellation = new CancellationTokenSource();
-        var meterCancellation = captureMeterWorkerCancellation;
-        captureMeterWorker = Task.Factory.StartNew(() =>
-        {
-            try
-            {
-                while (meterQueue.Reader.WaitToReadAsync(meterCancellation.Token).AsTask().GetAwaiter().GetResult())
-                    while (meterQueue.Reader.TryRead(out var packet))
-                        if (packet.Generation == Volatile.Read(ref captureGeneration))
-                            UpdateCaptureMeters(packet.Buffer, packet.Length, packet.Format, packet.Generation);
-            }
-            catch (OperationCanceledException) { }
-        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         return (generation, queue);
     }
 
@@ -627,7 +606,6 @@ internal sealed class MixerWindow : Form
         Interlocked.Increment(ref captureBufferCount);
         var packet = new CapturePacket(generation, buffer, length, format);
         if (!queue.Writer.TryWrite(packet)) Interlocked.Increment(ref captureDroppedPackets);
-        captureMeterQueue?.Writer.TryWrite(packet);
     }
 
     private void StartAsioCapture(string driverName)
@@ -654,6 +632,7 @@ internal sealed class MixerWindow : Form
                 var length = sampleCount * sizeof(float);
                 if (length <= 0) return;
                 Interlocked.Exchange(ref captureLastBufferTicks, DateTime.UtcNow.Ticks);
+                UpdateCaptureMeters(sampleBuffer.AsSpan(0, sampleCount), channels, generation);
                 if (!captureHasData) { captureHasData = true; if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _ = PublishAudioDevicesAsync()); }
                 var copy = new byte[length];
                 Buffer.BlockCopy(sampleBuffer, 0, copy, 0, length);
@@ -701,22 +680,13 @@ internal sealed class MixerWindow : Form
         try { asioCapture?.Dispose(); } catch { }
         asioCapture = null;
         var queue = captureQueue; captureQueue = null; queue?.Writer.TryComplete();
-        var meterQueue = captureMeterQueue; captureMeterQueue = null; meterQueue?.Writer.TryComplete();
         var worker = captureWorker; captureWorker = null;
-        var meterWorker = captureMeterWorker; captureMeterWorker = null;
         var cancellation = captureWorkerCancellation; captureWorkerCancellation = null;
-        var meterCancellation = captureMeterWorkerCancellation; captureMeterWorkerCancellation = null;
         if (cancellation is not null)
         {
             cancellation.Cancel();
             if (worker is not null) _ = worker.ContinueWith(_ => cancellation.Dispose(), TaskScheduler.Default);
             else cancellation.Dispose();
-        }
-        if (meterCancellation is not null)
-        {
-            meterCancellation.Cancel();
-            if (meterWorker is not null) _ = meterWorker.ContinueWith(_ => meterCancellation.Dispose(), TaskScheduler.Default);
-            else meterCancellation.Dispose();
         }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
@@ -895,7 +865,6 @@ internal sealed class MixerWindow : Form
                     20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))),
                     20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
                 levels[channel] = level;
-                meterWindowLevels[channel] = Math.Max(meterWindowLevels[channel], level);
                 maxLevel = Math.Max(maxLevel, level);
                 if (level > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
@@ -1065,16 +1034,10 @@ internal sealed class MixerWindow : Form
                 if (staleCapture)
                 {
                     Array.Fill(levels, -90d);
-                    Array.Fill(meterWindowLevels, -90d);
                     Array.Clear(clips);
                     captureHasSignal = false;
                 }
-                l = meterWindowLevels.ToArray();
-                // WASAPI may deliver 50 ms blocks while this timer publishes every 33 ms.
-                // Reuse the most recent block level on intervening ticks instead of sending
-                // -90 dB and making the live meter appear to drop out between callbacks.
-                for (var channel = 0; channel < l.Length; channel++) l[channel] = Math.Max(l[channel], levels[channel]);
-                Array.Fill(meterWindowLevels, -90d); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
+                l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
