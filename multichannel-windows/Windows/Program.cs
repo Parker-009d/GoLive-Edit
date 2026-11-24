@@ -702,8 +702,6 @@ internal sealed class MixerWindow : Form
             var channels = capture is not null ? capture.WaveFormat.Channels : asioCapture is not null ? channelCount : 0;
             var outputIndex = selectedOutput is null ? -1 : outputs.FindIndex(x => x.ID == selectedOutput.ID);
             inputDeviceIds = inputs.Select(x => x.ID).ToArray(); outputDeviceIds = outputs.Select(x => x.ID).ToArray();
-            var dropped = Interlocked.Read(ref captureDroppedPackets);
-            var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
             var hasInput = audioBackend == "ASIO" ? asioCapture is not null : selectedDevice is not null;
             var connectedStatus = $"{audioBackend} connected · {(sampleRate / 1000):0.0} kHz · {channels} ch";
             var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? $"{captureNotice} · {(sampleRate / 1000):0.0} kHz · {channels} ch" : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : connectedStatus;
