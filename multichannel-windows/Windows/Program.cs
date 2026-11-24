@@ -51,7 +51,7 @@ internal sealed class MixerWindow : Form
     // Mixer state only needs to reach the remote/OBS bridge a few times per second.
     // Polling the full 24-channel state at 10 Hz competes with WebView meter rendering.
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
-    private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 20 };
+    private readonly System.Windows.Forms.Timer meterTimer = new() { Interval = 33 };
     private readonly System.Windows.Forms.Timer spectrumTimer = new() { Interval = 200 };
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
@@ -78,6 +78,8 @@ internal sealed class MixerWindow : Form
     private string[] asioDriverNames = [];
     private WaveFileWriter? writer;
     private JsonElement mixerState;
+    private long mixerStateVersion;
+    private long configuredAudioStateVersion = -1;
     private string remoteState = "{\"ch\":[],\"main\":{}}";
     private readonly float[][] spectrumRing = Enumerable.Range(0, 24).Select(_ => new float[2048]).ToArray();
     private static readonly double[] SpectrumWindow = Enumerable.Range(0, 2048).Select(i => .5 - .5 * Math.Cos(2 * Math.PI * i / 2047)).ToArray();
@@ -732,10 +734,18 @@ internal sealed class MixerWindow : Form
         // CaptureAudio when a driver reuses or mutates its callback buffer.
         UpdateCaptureMeters(samples, frames, channels, generation);
         if (generation != Volatile.Read(ref captureGeneration)) return;
-        JsonElement state; lock (audioLock) state = mixerState;
+        JsonElement state; long stateVersion;
+        lock (audioLock) { state = mixerState; stateVersion = mixerStateVersion; }
         var ch = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("ch", out var cs) ? cs : default;
         var main = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("main", out var ms) ? ms : default;
-        localFX.Configure(state);
+        if (configuredAudioStateVersion != stateVersion)
+        {
+            localFX.Configure(state);
+            if (ch.ValueKind == JsonValueKind.Array)
+                for (var i = 0; i < 24; i++)
+                    if (ch.GetArrayLength() > i && ch[i].TryGetProperty("dsp", out var dsp)) localDSP[i].Configure(dsp);
+            configuredAudioStateVersion = stateVersion;
+        }
         var muted = new bool[24]; var anySolo = false;
         if (ch.ValueKind == JsonValueKind.Array) foreach (var c in ch.EnumerateArray()) anySolo |= c.TryGetProperty("solo", out var so) && so.GetBoolean();
         var masterMuted = main.ValueKind == JsonValueKind.Object && main.TryGetProperty("mute", out var mm) && mm.GetBoolean();
@@ -745,8 +755,6 @@ internal sealed class MixerWindow : Form
             var c = ch.ValueKind == JsonValueKind.Array && ch.GetArrayLength() > i ? ch[i] : default;
             muted[i] = masterMuted || c.ValueKind != JsonValueKind.Object || (c.TryGetProperty("mute", out var m) && m.GetBoolean()) || (anySolo && (!c.TryGetProperty("solo", out var s) || !s.GetBoolean()));
         }
-        for (var i = 0; i < 24; i++)
-            if (ch.ValueKind == JsonValueKind.Array && ch.GetArrayLength() > i && ch[i].TryGetProperty("dsp", out var dsp)) localDSP[i].Configure(dsp);
         if (generation != Volatile.Read(ref captureGeneration)) return;
         lock (audioLock)
         {
@@ -957,8 +965,18 @@ internal sealed class MixerWindow : Form
                 if (json is not null)
                 {
                     using var document = JsonDocument.Parse(json); var snapshot = document.RootElement.Clone();
-                    lock (audioLock) { mixerState = snapshot; remoteState = snapshot.GetRawText(); }
-                    await obs.SyncAsync(snapshot);
+                    var rawSnapshot = snapshot.GetRawText(); var changed = false;
+                    lock (audioLock)
+                    {
+                        if (!string.Equals(remoteState, rawSnapshot, StringComparison.Ordinal))
+                        {
+                            mixerState = snapshot;
+                            remoteState = rawSnapshot;
+                            mixerStateVersion++;
+                            changed = true;
+                        }
+                    }
+                    if (changed) await obs.SyncAsync(snapshot);
                 }
             }
         }
