@@ -89,6 +89,8 @@ internal sealed class MixerWindow : Form
     private int spectrumIndex;
     private int spectrumFilled;
     private double[] levels = Enumerable.Repeat(-90d, 24).ToArray();
+    // Peak envelope accumulated between 33 ms WebView meter publications so short mic taps aren't skipped.
+    private double[] meterWindowLevels = Enumerable.Repeat(-90d, 24).ToArray();
     private bool[] clips = new bool[24];
     private DateTime[] clipUntil = new DateTime[24];
     private double sampleRate;
@@ -581,6 +583,7 @@ internal sealed class MixerWindow : Form
         Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
         Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
         Interlocked.Exchange(ref captureLastBufferTicks, 0);
+        lock (audioLock) { Array.Fill(levels, -90d); Array.Fill(meterWindowLevels, -90d); Array.Clear(clips); }
         // A short multi-block queue absorbs brief scheduling and GC pauses without
         // dropping live input packets. Keep processing on a dedicated reader thread
         // so ThreadPool delays cannot starve the capture path.
@@ -686,7 +689,7 @@ internal sealed class MixerWindow : Form
         }
         try { monitorOut?.Stop(); monitorOut?.Dispose(); } catch { }
         monitorOut = null; monitorBuffer = null;
-        lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); clips = new bool[24]; }
+        lock (audioLock) { levels = Enumerable.Repeat(-90d,24).ToArray(); Array.Fill(meterWindowLevels, -90d); clips = new bool[24]; }
     }
 
     private async Task PublishAudioDevicesAsync()
@@ -861,6 +864,7 @@ internal sealed class MixerWindow : Form
                     20 * Math.Log10(Math.Max(1e-5, Math.Sqrt(sum[channel] / frames))),
                     20 * Math.Log10(Math.Max(1e-5, peak[channel])) - 6));
                 levels[channel] = level;
+                meterWindowLevels[channel] = Math.Max(meterWindowLevels[channel], level);
                 maxLevel = Math.Max(maxLevel, level);
                 if (level > SignalThresholdDb) captureHasSignal = true;
                 if (peak[channel] >= .999) clipUntil[channel] = now.AddSeconds(1.5);
@@ -1030,10 +1034,11 @@ internal sealed class MixerWindow : Form
                 if (staleCapture)
                 {
                     Array.Fill(levels, -90d);
+                    Array.Fill(meterWindowLevels, -90d);
                     Array.Clear(clips);
                     captureHasSignal = false;
                 }
-                l = levels.ToArray(); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
+                l = meterWindowLevels.ToArray(); Array.Fill(meterWindowLevels, -90d); c = clips.ToArray(); sr = sampleRate; ch = channelCount;
             }
             var fxLevels = localFX.ReadMeters();
             var info = new { sampleRate = sr, channels = ch, sampleFormat = captureFormat, peakDb = Interlocked.Read(ref capturePeakHundredthsDb) / 100d, clips = c, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
