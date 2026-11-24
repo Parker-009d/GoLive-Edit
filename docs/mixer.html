@@ -1191,11 +1191,46 @@ svg[aria-label^="EQ response across"]{height:250px!important;flex:none;max-width
 .meter-grid .meter-tile.meter-active:not(.meter-selected){box-shadow:none!important}
 .meter-grid .meter-tile.meter-selected>.mtr{outline:1.5px solid #2f78d1;outline-offset:2px;border-radius:4px;box-shadow:0 0 4px rgba(47,120,209,.65)}
 .meter-grid .meter-tile.meter-active:not(.meter-selected)>.mtr{box-shadow:0 0 0 1px #2fbf71,0 0 4px rgba(47,191,113,.55)}
+
+/* ===== FIT-TO-WINDOW LAYOUT (v2): one viewport, no clipping, crisp scaling ===== */
+:root{--z:1}
+html,body{height:100%;overflow:hidden}
+#wrap{overflow:hidden;height:100vh}
+#root{height:100%}
+.m.m{zoom:var(--z)!important;width:calc(100vw / var(--z))!important;height:calc(100vh / var(--z))!important;min-width:0!important;min-height:0!important;display:grid!important;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
+.m.m nav{padding:4px 8px 6px;gap:6px}
+.m.m nav .tab{transform-origin:left center}
+.m.m nav .tab svg{width:26px!important;height:26px!important}
+.m.m nav .tab{min-height:0}
+/* work area: channel strip | processors | utility rail, all inside the viewport */
+.main-grid{grid-template-columns:84px minmax(0,1fr) 148px!important;gap:6px!important;padding:6px!important;min-height:0;overflow:hidden}
+.main-grid>.stp{zoom:1!important;min-height:0;overflow:hidden}
+.main-grid>div:nth-child(2){min-height:0!important;min-width:0}
+.main-grid>div:nth-child(2)>div:first-child{min-height:0!important;height:100%;min-width:0}
+.main-grid>div:nth-child(2) .sec{min-width:0;min-height:0;overflow:hidden}
+.utility-rail{min-height:0;overflow-y:auto;max-height:100%}
+.utility-rail>.sec.utility-remote{flex:none}
+/* dock: Local Live | bank buttons | faders, compact and always fully visible */
+.bottom-dock.bottom-dock{grid-template-columns:minmax(250px,320px) 64px minmax(0,1fr)!important;gap:6px!important;padding:0 6px 6px!important;min-width:0!important;min-height:0;overflow:hidden}
+.bottom-dock>.lay{zoom:1!important;width:64px!important;max-height:300px;overflow-y:auto}
+.bottom-dock>.mode-panel{max-height:300px!important;overflow:auto;font-size:11px}
+.bottom-dock>.mode-panel .live-form,.bottom-dock>.mode-panel .obs-form{grid-template-columns:86px minmax(0,1fr)!important;gap:4px 6px}
+.bottom-dock>.mode-panel .val{white-space:normal;overflow-wrap:anywhere}
+.fader-viewport{min-height:0}
+.m.m nav .tab{height:40px!important;padding:2px 10px!important}
+.m.m nav .tab svg{width:22px!important;height:22px!important}
+.main-grid .pc .bn{height:auto!important;min-height:24px;padding:2px 4px;white-space:normal;line-height:12px}
+.utility-rail{scrollbar-width:thin}
+.utility-rail .utility-remote canvas,.utility-rail .utility-remote img,.utility-rail .utility-remote svg{max-width:100%;height:auto}
+.m.m{width:var(--sw,1366px)!important;height:var(--sh,768px)!important;flex:none;margin:auto}
+#wrap{display:flex;overflow:auto!important;background:#000}
+#root{display:flex!important;flex:1 0 auto;width:auto!important;min-width:100%;min-height:100%}
+@media(max-width:1180px){.main-grid{grid-template-columns:78px minmax(0,1fr) 132px!important}.bottom-dock.bottom-dock{grid-template-columns:230px 60px minmax(0,1fr)!important}}
 </style>
 </head>
 <body>
 
-<div id="wrap"><div id="root"></div></div><div class="resize-tool"><button id="resize-toggle" class="tab resize-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="resize-menu" title="Resize the GoLiv Edit window"><svg viewBox="0 0 36 36" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14 4 4m0 0v7m0-7h7M22 14 32 4m0 0h-7m7 0v7M14 22 4 32m0 0v-7m0 7h7M22 22l10 10m0 0h-7m7 0v-7"/></svg><span>Resize</span></button><div id="resize-menu" class="resize-menu" hidden><span class="resize-heading">Display size</span><button type="button" data-resize="standard">Standard</button><button type="button" data-resize="medium">Medium</button><button type="button" data-resize="high">High</button><button type="button" data-resize="ultra">Ultra</button><div class="resize-divider"></div><span class="resize-heading">Fit current</span><button type="button" data-resize="fitWidth">Window Width</button><button type="button" data-resize="fitHeight">Window Height</button></div></div>
+<div id="wrap"><div id="root"></div></div><div class="resize-tool"><button id="resize-toggle" class="tab resize-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="resize-menu" title="Resize the GoLiv Edit window"><svg viewBox="0 0 36 36" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14 4 4m0 0v7m0-7h7M22 14 32 4m0 0h-7m7 0v7M14 22 4 32m0 0v-7m0 7h7M22 22l10 10m0 0h-7m7 0v-7"/></svg><span>Resize</span></button><div id="resize-menu" class="resize-menu" hidden><span class="resize-heading">Window scale · <b id="z-read">100%</b></span><button type="button" data-resize="auto">Auto fit (lock 16:9)</button><button type="button" data-resize="fill">Fill window</button><div class="resize-divider"></div><button type="button" data-resize="standard">75%</button><button type="button" data-resize="medium">90%</button><button type="button" data-resize="high">110%</button><button type="button" data-resize="ultra">135%</button><div class="resize-divider"></div><span class="resize-heading">Fit current</span><button type="button" data-resize="fitWidth">Window Width</button><button type="button" data-resize="fitHeight">Window Height</button><span class="resize-heading" style="font-weight:400;color:#aab">Ctrl + / − / 0 also works</span></div></div>
 <script type="text/x-tpl" id="tpl">
 <div class="m" style="width:100%;min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;background:#050506" onTouchStart="{{bankDown}}" onTouchEnd="{{bankUp}}" onWheel="{{bankWheel}}">
 <nav aria-label="Pages" style="display:flex;gap:8px;padding:6px 8px 10px;background:linear-gradient(#4a4a4a,#1f1f1f);border-bottom:2px solid #000;overflow-x:auto"><button class="{{tcls0}}" onClick="{{tgo0}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><linearGradient id="icb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a7078"/><stop offset="1" stop-color="#202327"/></linearGradient><linearGradient id="icc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1f3f5"/><stop offset=".5" stop-color="#8d949b"/><stop offset="1" stop-color="#34383c"/></linearGradient></defs><rect x="9" y="2" width="18" height="32" rx="3" fill="url(#icb)" stroke="#000"/><circle cx="18" cy="9" r="3.7" fill="url(#icc)" stroke="#000" stroke-width=".8"/><path d="M18 9V6.2" stroke="#111" stroke-width="1.3" stroke-linecap="round"/><rect x="17" y="15" width="2" height="16" rx="1" fill="#050505"/><rect x="13.5" y="20" width="9" height="5.5" rx="1" fill="url(#icc)" stroke="#000" stroke-width=".7"/><path d="M13.5 22.8H22.5" stroke="#fff" stroke-width="1"/><rect x="11" y="16" width="1.7" height="1.6" fill="#e5484d"/><rect x="11" y="18.4" width="1.7" height="1.6" fill="#e8c23a"/><rect x="11" y="20.8" width="1.7" height="1.6" fill="#35d07f"/><rect x="11" y="23.2" width="1.7" height="1.6" fill="#35d07f"/><rect x="11" y="25.6" width="1.7" height="1.6" fill="#35d07f"/></svg><span>Channel</span></button><button class="{{tcls1}}" onClick="{{tgo1}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#0c1512" stroke="#7a8188"/><path d="M2 18H34M10 6V30M18 6V30M26 6V30" stroke="#17291f" stroke-width=".7"/><path d="M2 23H34" stroke="#ffb347" stroke-width="1" stroke-dasharray="2 2"/><path d="M3 18L5 17.2L7 18.8L9 18H12L13 9L15 27L17 10L19 26L21 12L23 24L25 18H27L29 17.4L31 18.6L33 18" fill="none" stroke="#5ef2a8" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Gate</span></button><button class="{{tcls2}}" onClick="{{tgo2}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#07090c" stroke="#7a8188"/><path d="M2 18H34M9 6V30M17 6V30M26 6V30" stroke="#1f262d" stroke-width=".7"/><path d="M3 24C8 24 9 14 14 14S20 24 24 22S30 12 33 12" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="8" cy="20" r="2.3" fill="#ff6a6a" stroke="#000" stroke-width=".6"/><circle cx="14" cy="14" r="2.3" fill="#ffd24a" stroke="#000" stroke-width=".6"/><circle cx="23.5" cy="21.8" r="2.3" fill="#5fdc7a" stroke="#000" stroke-width=".6"/><circle cx="30" cy="12.4" r="2.3" fill="#5aa9ff" stroke="#000" stroke-width=".6"/></svg><span>EQ</span></button><button class="{{tcls3}}" onClick="{{tgo3}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><radialGradient id="ikn" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="#f6f8fa"/><stop offset=".55" stop-color="#9aa1a8"/><stop offset="1" stop-color="#34393d"/></radialGradient></defs><circle cx="18" cy="19" r="15" fill="#15181b" stroke="#000"/><path d="M7 28L9 26M5.5 19H8M7 10L9 12M12 4.5L13 7M24 4.5L23 7M29 10L27 12M31 19H28.5" stroke="#9cc0ff" stroke-width="1.5" stroke-linecap="round"/><circle cx="18" cy="19" r="8.6" fill="url(#ikn)" stroke="#000" stroke-width=".8"/><path d="M18 19L22.6 12.6" stroke="#111" stroke-width="2.3" stroke-linecap="round"/></svg><span>Comp</span></button><button class="{{tcls4}}" onClick="{{tgo4}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><defs><linearGradient id="isp" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3f4449"/><stop offset=".5" stop-color="#1a1d20"/><stop offset="1" stop-color="#30353a"/></linearGradient><radialGradient id="ico" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#78808a"/><stop offset="1" stop-color="#0d0f10"/></radialGradient></defs><rect x="7" y="2" width="22" height="32" rx="3" fill="url(#isp)" stroke="#000"/><circle cx="18" cy="9" r="3.3" fill="url(#ico)" stroke="#9aa0a6" stroke-width=".7"/><circle cx="18" cy="9" r="1" fill="#cfd5db"/><circle cx="18" cy="23" r="7.7" fill="url(#ico)" stroke="#9aa0a6" stroke-width=".9"/><circle cx="18" cy="23" r="3" fill="#15171a" stroke="#555" stroke-width=".6"/><circle cx="18" cy="23" r="1.2" fill="#b4bac0"/><circle cx="25.6" cy="30.6" r=".9" fill="#ff5d5d"/></svg><span>Main</span></button><button class="{{tcls5}}" onClick="{{tgo5}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="5" y="2" width="26" height="32" rx="3" fill="#0b0c0d" stroke="#7a8188"/><rect x="10" y="5" width="6" height="2.2" fill="#1d2024"/><rect x="10" y="8" width="6" height="2.2" fill="#1d2024"/><rect x="10" y="11" width="6" height="2.2" fill="#e8c23a"/><rect x="10" y="14" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="17" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="20" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="23" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="26" width="6" height="2.2" fill="#35d07f"/><rect x="10" y="29" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="5" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="8" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="11" width="6" height="2.2" fill="#1d2024"/><rect x="20" y="14" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="17" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="20" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="23" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="26" width="6" height="2.2" fill="#35d07f"/><rect x="20" y="29" width="6" height="2.2" fill="#35d07f"/></svg><span>Meter</span></button><button class="{{tclsFx}}" onClick="{{tgoFx}}"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="6" width="32" height="24" rx="3" fill="#07090c" stroke="#7a8188"/><path d="M5 24C8 24 8 12 11 12S14 24 17 24S20 12 23 12S26 24 31 24" fill="none" stroke="#c9a6ff" stroke-width="1.8"/></svg><span>FX</span></button></nav>
@@ -1550,6 +1585,37 @@ if(window.goLiveMixer)startBrowserPreview();else window.addEventListener('load',
 })();
 </script>
 <aside style="position:fixed;right:14px;bottom:14px;z-index:99999;padding:8px 12px;border:1px solid #526b8b;border-radius:999px;background:#121c2a;color:#dcecff;font:12px/1.3 system-ui,sans-serif;box-shadow:0 4px 16px #0008;pointer-events:none">Browser preview · simulated meters</aside>
+
+<script>
+/* MR18-Edit-style resize: fixed 1366x768 stage scaled as one unit (vector zoom, always crisp), centred, aspect locked in Auto. */
+(function(){
+const W=1366,H=768,FIXED={standard:.75,medium:.9,high:1.1,ultra:1.35},de=document.documentElement,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let mode='auto',manual=1;
+try{const m=localStorage.getItem('golive.displayPreset'),z=parseFloat(localStorage.getItem('golive.displayZoom'));if(m)mode=m;if(z>0)manual=z}catch(_){}
+function apply(){
+  let z,fill=false;
+  if(mode==='fill'){z=clamp(Math.min(innerWidth/W,innerHeight/H),.6,2);fill=true}
+  else if(mode==='fitWidth')z=clamp(innerWidth/W,.5,2.5);
+  else if(mode==='fitHeight')z=clamp(innerHeight/H,.5,2.5);
+  else if(mode==='manual')z=clamp(manual,.5,2.5);
+  else if(FIXED[mode])z=FIXED[mode];
+  else z=clamp(Math.min(innerWidth/W,innerHeight/H),.5,2.5);
+  de.style.setProperty('--z',z.toFixed(3));
+  de.style.setProperty('--sw',fill?'calc(100vw / var(--z))':W+'px');
+  de.style.setProperty('--sh',fill?'calc(100vh / var(--z))':H+'px');
+  const r=document.getElementById('z-read');if(r)r.textContent=Math.round(z*100)+'%';
+  window.dispatchEvent(new Event('goLiveScaled'));
+}
+window.__goLiveSetScale=function(m){mode=m;try{localStorage.setItem('golive.displayPreset',m)}catch(_){}
+  document.querySelectorAll('#resize-menu [data-resize]').forEach(b=>{const on=b.dataset.resize===m;b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on))});apply()};
+function step(f){const cur=parseFloat(getComputedStyle(de).getPropertyValue('--z'))||1;manual=clamp(cur*f,.5,2.5);mode='manual';try{localStorage.setItem('golive.displayPreset','manual');localStorage.setItem('golive.displayZoom',String(manual))}catch(_){}
+  document.querySelectorAll('#resize-menu [data-resize]').forEach(b=>{b.classList.remove('active');b.setAttribute('aria-pressed','false')});apply()}
+addEventListener('resize',apply);
+addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key==='+'||e.key==='='){e.preventDefault();step(1.1)}else if(e.key==='-'||e.key==='_'){e.preventDefault();step(1/1.1)}else if(e.key==='0'){e.preventDefault();window.__goLiveSetScale('auto')}});
+addEventListener('wheel',e=>{if(e.ctrlKey){e.preventDefault();step(e.deltaY<0?1.06:1/1.06)}},{passive:false});
+window.__goLiveSetScale(mode);
+})();
+</script>
 </body>
 </html>
 
