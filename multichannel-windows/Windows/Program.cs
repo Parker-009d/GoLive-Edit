@@ -973,7 +973,7 @@ internal sealed class MixerWindow : Form
         {
             double[] l; bool[] c; double sr; int ch;
             var lastBufferTicks = Interlocked.Read(ref captureLastBufferTicks);
-            var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(300).Ticks;
+            var staleCapture = lastBufferTicks > 0 && DateTime.UtcNow.Ticks - lastBufferTicks > TimeSpan.FromMilliseconds(1000).Ticks;
             lock (audioLock)
             {
                 if (staleCapture)
