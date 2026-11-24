@@ -1222,7 +1222,7 @@ html,body{height:100%;overflow:hidden}
 .main-grid .pc .bn{height:auto!important;min-height:24px;padding:2px 4px;white-space:normal;line-height:12px}
 .utility-rail{scrollbar-width:thin}
 .utility-rail .utility-remote canvas,.utility-rail .utility-remote img,.utility-rail .utility-remote svg{max-width:100%;height:auto}
-.m.m{width:var(--sw,1366px)!important;height:var(--sh,768px)!important;flex:none;margin:auto}
+.m.m{width:calc(100vw / var(--z))!important;height:calc(100vh / var(--z))!important;flex:none;margin:0}
 #wrap{display:flex;overflow:auto!important;background:#000}
 #root{display:flex!important;flex:1 0 auto;width:auto!important;min-width:100%;min-height:100%}
 @media(max-width:1180px){.main-grid{grid-template-columns:78px minmax(0,1fr) 132px!important}.bottom-dock.bottom-dock{grid-template-columns:230px 60px minmax(0,1fr)!important}}
