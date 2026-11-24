@@ -33,8 +33,9 @@ internal sealed class MixerWindow : Form
     {
         var assembly = typeof(MixerWindow).Assembly;
         var version = assembly.GetName().Version?.ToString() ?? "0";
+        var resourceStamp = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)?.InformationalVersion ?? version;
         var versionFile = Path.Combine(ResourceDirectory, ".version");
-        if (File.Exists(versionFile) && File.ReadAllText(versionFile) == version) return;
+        if (File.Exists(versionFile) && File.ReadAllText(versionFile) == resourceStamp) return;
         Directory.CreateDirectory(ResourceDirectory);
         foreach (var name in new[] { "golive-edit-mixer.html", "phone-remote.html", "GoLive.ico", "GoLiveFX.dll" })
         {
@@ -43,7 +44,7 @@ internal sealed class MixerWindow : Form
             using var output = File.Create(ResourcePath(name));
             input.CopyTo(output);
         }
-        File.WriteAllText(versionFile, version);
+        File.WriteAllText(versionFile, resourceStamp);
     }
 
     private readonly WebView2 web = new() { Dock = DockStyle.Fill };
