@@ -56,6 +56,7 @@ internal sealed class MixerWindow : Form
     private readonly System.Windows.Forms.Timer deviceTimer = new() { Interval = 2000 };
     private readonly object audioLock = new();
     private readonly object meterLock = new();
+    private readonly object spectrumLock = new();
     private readonly object recordLock = new();
     private readonly object captureProcessLock = new();
     private Channel<CapturePacket>? captureQueue;
@@ -760,7 +761,7 @@ internal sealed class MixerWindow : Form
             muted[i] = masterMuted || c.ValueKind != JsonValueKind.Object || (c.TryGetProperty("mute", out var m) && m.GetBoolean()) || (anySolo && (!c.TryGetProperty("solo", out var s) || !s.GetBoolean()));
         }
         if (generation != Volatile.Read(ref captureGeneration)) return;
-        lock (audioLock)
+        lock (spectrumLock)
         {
             for (var frame = 0; frame < frames; frame++)
             {
@@ -1050,28 +1051,42 @@ internal sealed class MixerWindow : Form
         finally { Volatile.Write(ref meterPublishBusy, 0); }
     }
 
+    private sealed record SpectrumSnapshot(double SampleRate, int Channels, int Route, int Filled, float[] Samples);
+
+    private SpectrumSnapshot? CaptureSpectrumSnapshot()
+    {
+        double sr; int ch; JsonElement state;
+        lock (audioLock) { sr = sampleRate; ch = channelCount; state = mixerState; }
+        if (ch <= 0) return null;
+        var selected = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("sel", out var selectedProp) && selectedProp.TryGetInt32(out var selectedChannel) ? Math.Clamp(selectedChannel, 0, 23) : 0;
+        var channels = state.ValueKind == JsonValueKind.Object && state.TryGetProperty("ch", out var channelArray) ? channelArray : default;
+        var selectedConfig = channels.ValueKind == JsonValueKind.Array && channels.GetArrayLength() > selected ? channels[selected] : default;
+        var route = InputIndex(selectedConfig, selected);
+        if (route < 0 || route >= Math.Min(24, ch)) return null;
+
+        lock (spectrumLock)
+        {
+            var filled = spectrumFilled;
+            if (filled < 2048) return null;
+            var samples = new float[2048];
+            for (var i = 0; i < samples.Length; i++) samples[i] = spectrumRing[route][(spectrumIndex + i) % samples.Length];
+            return new SpectrumSnapshot(sr, ch, route, filled, samples);
+        }
+    }
+
     private async Task PublishSpectrumAsync()
     {
         if (web.CoreWebView2 is null || Interlocked.Exchange(ref spectrumBusy, 1) != 0) return;
         try
         {
-            double sr; int ch; int route; float[] samples; int filled;
-            lock (audioLock)
-            {
-                sr = sampleRate; ch = channelCount; filled = spectrumFilled;
-                if (filled < 2048) return;
-                var selected = mixerState.ValueKind == JsonValueKind.Object && mixerState.TryGetProperty("sel", out var selectedProp) && selectedProp.TryGetInt32(out var selectedChannel) ? Math.Clamp(selectedChannel, 0, 23) : 0;
-                var channels = mixerState.ValueKind == JsonValueKind.Object && mixerState.TryGetProperty("ch", out var channelArray) ? channelArray : default;
-                var selectedConfig = channels.ValueKind == JsonValueKind.Array && channels.GetArrayLength() > selected ? channels[selected] : default;
-                route = InputIndex(selectedConfig, selected);
-                if (route < 0 || route >= Math.Min(24, ch)) return;
-                samples = new float[2048];
-                for (var i = 0; i < samples.Length; i++) samples[i] = spectrumRing[route][(spectrumIndex + i) % samples.Length];
-            }
-            var spectrum = await Task.Run(() => CalculateSpectrum(samples, filled, sr));
+            // The spectrum ring can be briefly busy while capture writes a block.
+            // Snapshot it on a worker so a lock wait never stalls the WinForms UI.
+            var snapshot = await Task.Run(() => CaptureSpectrumSnapshot());
+            if (snapshot is null) return;
+            var spectrum = await Task.Run(() => CalculateSpectrum(snapshot.Samples, snapshot.Filled, snapshot.SampleRate));
             var spectra = Enumerable.Range(0, 24).Select(_ => Enumerable.Repeat(-90d, 48).ToArray()).ToArray();
-            spectra[route] = spectrum;
-            var info = new { sampleRate = sr, channels = ch, spectrumMaxHz = 20000, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
+            spectra[snapshot.Route] = spectrum;
+            var info = new { sampleRate = snapshot.SampleRate, channels = snapshot.Channels, spectrumMaxHz = 20000, inputBufferCount = Interlocked.Read(ref captureBufferCount), queueDrops = Interlocked.Read(ref captureDroppedPackets) };
             var payload = JsonSerializer.Serialize(new { spectra, info });
             if (web.CoreWebView2 is not null) await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveSetAudioLevels({payload})");
         }
