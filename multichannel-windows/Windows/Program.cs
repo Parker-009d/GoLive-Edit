@@ -134,7 +134,7 @@ internal sealed class MixerWindow : Form
     public MixerWindow()
     {
         Text = "GoLiv Edit Multichannel 24";
-        MinimumSize = new Size(980, 620);
+        MinimumSize = new Size(760, 620);
         ClientSize = new Size(1420, 940);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.Black;
