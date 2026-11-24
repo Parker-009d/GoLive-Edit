@@ -367,7 +367,7 @@ internal sealed class MixerWindow : Form
                 {
                     // Some interface drivers advertise a mix format that WASAPI rejects for capture.
                     // Retry standard shared-mode formats before reporting a device error.
-                    attempt = useNativeFormat ? new WasapiCaptureWithoutAutoConvert(device, 100) { WaveFormat = format } : new WasapiCaptureWithAutoConvert(device, 100) { WaveFormat = format };
+                    attempt = useNativeFormat ? new WasapiCaptureWithoutAutoConvert(device, 50) { WaveFormat = format } : new WasapiCaptureWithAutoConvert(device, 50) { WaveFormat = format };
                     var activeCapture = attempt;
                     activeCapture.DataAvailable += (_, e) =>
                     {
@@ -576,23 +576,25 @@ internal sealed class MixerWindow : Form
         Interlocked.Exchange(ref capturePeakHundredthsDb, -9000);
         Interlocked.Exchange(ref captureBufferCount, 0); Interlocked.Exchange(ref captureDroppedPackets, 0);
         Interlocked.Exchange(ref captureLastBufferTicks, 0);
-        // Two driver blocks bound the queued work so a UI stall cannot leave seconds
-        // of old audio waiting to be processed after the interface recovers.
-        var queue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
+        // A short multi-block queue absorbs brief scheduling and GC pauses without
+        // dropping live input packets. Keep processing on a dedicated reader thread
+        // so ThreadPool delays cannot starve the capture path.
+        var queue = Channel.CreateBounded<CapturePacket>(new BoundedChannelOptions(6) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
         captureQueue = queue;
         captureWorkerCancellation = new CancellationTokenSource();
         var cancellation = captureWorkerCancellation;
-        captureWorker = Task.Run(async () =>
+        captureWorker = Task.Factory.StartNew(() =>
         {
             try
             {
-                await foreach (var packet in queue.Reader.ReadAllAsync(cancellation.Token))
-                    lock (captureProcessLock)
-                        if (packet.Generation == Volatile.Read(ref captureGeneration))
-                            CaptureAudio(packet.Buffer, packet.Length, packet.Format, packet.Generation);
+                while (queue.Reader.WaitToReadAsync(cancellation.Token).AsTask().GetAwaiter().GetResult())
+                    while (queue.Reader.TryRead(out var packet))
+                        lock (captureProcessLock)
+                            if (packet.Generation == Volatile.Read(ref captureGeneration))
+                                CaptureAudio(packet.Buffer, packet.Length, packet.Format, packet.Generation);
             }
             catch (OperationCanceledException) { }
-        });
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         return (generation, queue);
     }
 
@@ -652,7 +654,7 @@ internal sealed class MixerWindow : Form
         {
             using (var audioClient = selectedOutput.AudioClient) monitorSampleRate = audioClient.MixFormat.SampleRate;
             monitorResampler.Reset();
-            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(80) };
+            monitorBuffer = new BufferedWaveProvider(new WaveFormat(monitorSampleRate, 24, 2)) { DiscardOnBufferOverflow = true, BufferDuration = TimeSpan.FromMilliseconds(200) };
             monitorOut = new WasapiOut(selectedOutput, AudioClientShareMode.Shared, true, 20);
             monitorOut.Init(monitorBuffer); monitorOut.Play();
         }
