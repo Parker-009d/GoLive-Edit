@@ -724,7 +724,7 @@ internal sealed class MixerWindow : Form
     private void CaptureAudio(byte[] bytes, int length, WaveFormat? format, int generation)
     {
         if (generation != Volatile.Read(ref captureGeneration) || format is null || length < format.BlockAlign) return;
-        var frames = length / format.BlockAlign; var channels = format.Channels;
+        var frames = length / format.BlockAlign; var channels = format.Channels; var meterChannels = Math.Min(24, channels);
         var samples = new float[frames * channels];
         for (var frame = 0; frame < frames; frame++) for (var c = 0; c < channels; c++)
         {
