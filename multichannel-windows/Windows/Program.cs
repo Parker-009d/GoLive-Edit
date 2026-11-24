@@ -705,7 +705,8 @@ internal sealed class MixerWindow : Form
             var dropped = Interlocked.Read(ref captureDroppedPackets);
             var dropNote = dropped > 0 ? $" · {dropped} capture buffers dropped" : "";
             var hasInput = audioBackend == "ASIO" ? asioCapture is not null : selectedDevice is not null;
-            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? captureNotice + (captureHasData ? " · signal detected" : " · waiting for signal") : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : !captureHasData ? "Waiting for audio data" : captureHasSignal ? $"{audioBackend} signal detected · {channels} hardware channels{dropNote}" : $"{audioBackend} active · no signal · {channels} channels{dropNote}";
+            var connectedStatus = $"{audioBackend} connected · {(sampleRate / 1000):0.0} kHz · {channels} ch{dropNote}";
+            var status = !string.IsNullOrEmpty(captureError) ? captureError : !hasInput ? (audioBackend == "ASIO" && asioDriverNames.Length == 0 ? "No ASIO driver found · install a compatible interface driver" : audioBackend == "ASIO" ? "Choose an ASIO driver from Input interface" : "No audio input selected") : !string.IsNullOrEmpty(captureNotice) ? $"{captureNotice} · {(sampleRate / 1000):0.0} kHz · {channels} ch" : !string.IsNullOrEmpty(monitorNotice) ? monitorNotice : connectedStatus;
             var json = JsonSerializer.Serialize(new { backend = audioBackend, names, index, channels, outputs = outputs.Select(AudioDeviceLabel).ToArray(), outputIndex, status });
             await web.CoreWebView2.ExecuteScriptAsync($"window.__goLiveAudioInputs && window.__goLiveAudioInputs({json})");
         }
