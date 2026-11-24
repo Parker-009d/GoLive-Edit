@@ -1226,6 +1226,16 @@ html,body{height:100%;overflow:hidden}
 #wrap{display:flex;overflow:auto!important;background:#000}
 #root{display:flex!important;flex:1 0 auto;width:auto!important;min-width:100%;min-height:100%}
 @media(max-width:1180px){.main-grid{grid-template-columns:78px minmax(0,1fr) 132px!important}.bottom-dock.bottom-dock{grid-template-columns:230px 60px minmax(0,1fr)!important}}
+
+/* Compact-width dock: keep Local Live, bank controls, and faders in full-width rows. */
+@media(max-width:1180px){
+ .bottom-dock.bottom-dock{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto auto minmax(300px,1fr)!important;gap:4px!important;padding-left:4px!important;padding-right:4px!important;min-width:0!important}
+ .bottom-dock>.mode-panel{grid-column:1!important;grid-row:1!important;width:100%!important;max-height:300px!important;margin:0!important}
+ .bottom-dock>.lay{grid-column:1!important;grid-row:2!important;width:100%!important;max-height:112px!important;display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;grid-auto-rows:24px!important;overflow-y:auto!important;overflow-x:hidden!important;padding:3px!important}
+ .bottom-dock>.lay .bn{height:22px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+ .bottom-dock>.fader-viewport{grid-column:1!important;grid-row:3!important;width:100%!important;min-width:0!important;min-height:300px!important}
+}
+@media(max-width:620px){.bottom-dock>.lay{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 </style>
 </head>
 <body>
