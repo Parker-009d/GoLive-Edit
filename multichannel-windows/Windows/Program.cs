@@ -412,11 +412,11 @@ internal sealed class MixerWindow : Form
         // directly in WASAPI exclusive mode before giving up to legacy WaveIn.
         var formats = new[]
         {
-            new WaveFormat(48000, 24, 2),
-            new WaveFormat(48000, 16, 2),
-            new WaveFormat(48000, 32, 2),
-            new WaveFormat(48000, 24, 1),
-            new WaveFormat(48000, 16, 1)
+            new WaveFormat(44100, 24, 2),
+            new WaveFormat(44100, 16, 2),
+            new WaveFormat(44100, 32, 2),
+            new WaveFormat(44100, 24, 1),
+            new WaveFormat(44100, 16, 1)
         };
         Exception? lastError = null;
         foreach (var format in formats)
@@ -498,8 +498,8 @@ internal sealed class MixerWindow : Form
 
             Exception? lastError = null;
             var formats = new List<WaveFormat>();
-            if (mixFormat.SampleRate == 48000) formats.Add(mixFormat);
-            var rates = new[] { 48000 };
+            if (mixFormat.SampleRate == 44100) formats.Add(mixFormat);
+            var rates = new[] { 44100 };
             var channels = new[] { mixFormat.Channels, 2, 1 }.Where(value => value is >= 1 and <= 24).Distinct();
             foreach (var rate in rates)
             foreach (var channelCount in channels)
@@ -557,15 +557,15 @@ internal sealed class MixerWindow : Form
 
     private static IEnumerable<WaveFormat> GetWasapiCaptureFormats(WaveFormat mixFormat)
     {
-        // Keep the WASAPI stream at the same 48 kHz rate requested from ASIO.
-        // Windows shared mode can convert from the endpoint's mix format when needed.
-        if (mixFormat.SampleRate == 48000) yield return mixFormat;
+        // Keep WASAPI and ASIO on the shared 44.1 kHz mixer rate.
+        // Shared mode can convert from the endpoint mix format when needed.
+        if (mixFormat.SampleRate == 44100) yield return mixFormat;
         var channels = new[] { mixFormat.Channels, 2, 1 }.Where(c => c is >= 1 and <= 24).Distinct();
         foreach (var channelCount in channels)
         {
-            yield return WaveFormat.CreateIeeeFloatWaveFormat(48000, channelCount);
-            yield return new WaveFormat(48000, 24, channelCount);
-            yield return new WaveFormat(48000, 16, channelCount);
+            yield return WaveFormat.CreateIeeeFloatWaveFormat(44100, channelCount);
+            yield return new WaveFormat(44100, 24, channelCount);
+            yield return new WaveFormat(44100, 16, channelCount);
         }
     }
 
@@ -606,8 +606,8 @@ internal sealed class MixerWindow : Form
             asioCapture = activeAsio;
             var channels = Math.Min(24, activeAsio.DriverInputChannelCount);
             if (channels <= 0) throw new InvalidOperationException("The ASIO driver reports no input channels.");
-            var rate = activeAsio.IsSampleRateSupported(48000) ? 48000 : 0;
-            if (rate == 0) throw new InvalidOperationException("The selected ASIO driver does not support 48 kHz, which is the mixer's shared rate.");
+            var rate = activeAsio.IsSampleRateSupported(44100) ? 44100 : 0;
+            if (rate == 0) throw new InvalidOperationException("The selected ASIO driver does not support 44.1 kHz, which is the mixer's shared rate.");
             activeAsio.InitRecordAndPlayback(null, channels, rate);
             sampleRate = rate; channelCount = channels;
             var format = WaveFormat.CreateIeeeFloatWaveFormat(rate, channels);
